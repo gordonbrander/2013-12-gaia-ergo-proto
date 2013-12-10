@@ -709,41 +709,44 @@ function accumulators(_, exports) {
   exports.attr = attr;
 
 
-  var addClass = multisetter(function addClassTo(elementClass, element) {
+  var setAddClass = multisetter(function addClassTo(elementClass, element) {
     var prevElementClass = element.className;
     if (prevElementClass.indexOf(elementClass) === -1)
       element.className = prevElementClass + ' ' + elementClass;
     return elementClass;
   });
-  exports.addClass = addClass;
+  exports.setAddClass = setAddClass;
 
 
-  var removeClass = multisetter(function removeClassFrom(elementClass, element) {
+  var setRemoveClass = multisetter(function removeClassFrom(elementClass, element) {
     var old = element.className;
     var pattern = RegExp(elementClass, 'g');
     element.className = old.replace(pattern, '');
     return elementClass;
   });
-  exports.removeClass = removeClass;
+  exports.setRemoveClass = setRemoveClass;
 
 
-  // Toggle a class on an element, or an accumulatable (array) of elements.
-  function switchClass(element, className, toggle) {
-    return toggle ? addClass(element, className) : removeClass(element, className);
-  }
-  exports.switchClass = switchClass;
-
-
-  // Toggle a class on `target` using a spread of true/false values. Sending
-  // true via spread will add the class to element. Sending false will
-  // remove it.
-  function classname(target, elementClass, spread) {
-    function updateToggle(target, value) {
-      switchClass(target, elementClass, value);
+  // Add a class from an element every time a value appears in
+  // `trigger` spread.
+  function addClass(target, trigger, className) {
+    function updateAddClass(target) {
+      return setAddClass(target, className);
     }
-    write(target, spread, updateToggle, $);
+    write(target, trigger, updateAddClass);
   }
-  exports.classname = classname;
+  exports.addClass = addClass;
+
+
+  // Remove a class from an element every time a value appears in
+  // `trigger` spread.
+  function removeClass(target, trigger, className) {
+    function updateRemoveClass(target) {
+      return setRemoveClass(target, className);
+    }
+    write(target, trigger, updateRemoveClass);
+  }
+  exports.removeClass = removeClass;
 
 
   // A wrapper for [requestAnimationFrame][raf], patching up browser support and

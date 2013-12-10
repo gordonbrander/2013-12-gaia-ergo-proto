@@ -66,6 +66,7 @@ body {
   transition: transform 200ms ease-out;
   transform: translateY(205px);
   width: 320px;
+  z-index: 999;
 }
 .js-ready .sys-fake-keyboard {
   display: block;
@@ -86,6 +87,7 @@ body {
   right: 0;
   top: 0;
   transition: height 200ms ease-out;
+  z-index: 501;
 }
 
 .rb-rocketbar.js-expanded {
@@ -133,6 +135,7 @@ body {
   position: absolute;
   right: 0;
   top: 0;
+  z-index: 500;
 }
 
 /* Settings drawer .set-
