@@ -130,3 +130,17 @@ body {
   right: 0;
   top: 0;
 }
+
+/* Settings drawer .set-
+----------------------------------------------------------------------------- */
+
+/* Use with .ir */
+.set-settings {
+  background-image: url(settings-drawer.png);
+  background-size: 320px auto;
+  height: 389px;
+  left: 0;
+  position: absolute;
+  top: 20px;
+  width: 320px;
+}
