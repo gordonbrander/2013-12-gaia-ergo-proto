@@ -1,0 +1,10 @@
+{
+    "name": "CoreUX",
+    "description": "Core UX ergonomics prototype",
+    "developer": {
+      "name": "Mozilla",
+      "url": "https://github.com/gordonbrander/"
+    },
+    "launch_path": "/",
+    "fullscreen": "true"
+}

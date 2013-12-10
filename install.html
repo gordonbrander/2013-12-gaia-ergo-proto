@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html class="no-js">
+<head>
+  <meta charset="utf-8">
+  <title>Install CoreUX Prototype</title>
+</head>
+<body>
+  <script>
+    var domain = window.location.origin;
+    navigator.mozApps.install(domain + '/manifest.webapp');
+    var req = navigator.mozApps.getSelf();
+    req.onsuccess = function() {
+      if(!req.result) {
+        alert('Failed to install');
+      }
+      else {
+        alert('Installed!');
+      }
+    };
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,132 @@
+/* Global
+----------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Fira Sans';
+  src: url("FiraSansOT-Regular.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Fira Sans';
+  src: url("FiraSansOT-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Fira Sans';
+  src: url("FiraSansOT-Bold.otf") format("opentype");
+  font-weight: 800;
+  font-style: normal;
+}
+
+html {
+  background: #333;
+  color: #fff;
+  font-family: 'Fira Sans', sans-serif;
+}
+
+html,
+body {
+  /* Make sure the body covers the viewport. */
+  height: 100%;
+}
+
+/* Utility
+----------------------------------------------------------------------------- */
+
+.ir {
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  display: block;
+  text-indent: -999em;
+}
+
+/* System .sys-
+----------------------------------------------------------------------------- */
+
+.sys-screen {
+  overflow: hidden;
+}
+
+/* Use with .ir */
+.sys-fake-keyboard {
+  background-image: url(keyboard.png);
+  background-size: 320px auto;
+  bottom: 0;
+  height: 205px;
+  left: 0;
+  position: absolute;
+  transition: transform 200ms ease-out;
+  transform: translateY(205px);
+  width: 320px;
+}
+.js-ready .sys-fake-keyboard {
+  display: block;
+}
+.sys-fake-keyboard.js-activated {
+  transform: translateY(0);
+}
+
+/* RocketBar .rb-
+----------------------------------------------------------------------------- */
+
+.rb-rocketbar {
+  background: #000;
+  height: 20px;
+  left: 0;
+  /* Contains absolute elements */
+  position: absolute;
+  right: 0;
+  top: 0;
+  transition: height 200ms ease-out;
+}
+
+.rb-rocketbar.js-expanded {
+  height: 50px;
+}
+
+.rb-input {
+  color: #fff;
+}
+
+/* Include .ir with the element. */
+.rb-icons {
+  background-image: url(statusbar1.png);
+  background-size: auto 20px;
+  height: 20px;
+  opacity: 1;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transition: opacity 200ms linear;
+  width: 130px;
+}
+.rb-rocketbar.js-expanded .rb-icons {
+  opacity: 0;
+}
+
+.rb-cancel,
+.rb-clear {
+  display: none;
+}
+
+.rb-cancel {
+  line-height: 50px;
+  position: absolute;
+  right: 5px;
+}
+.rb-rocketbar.js-expanded .rb-cancel {
+  display: block;
+}
+
+.rb-overlay {
+  background: rgba(0, 0, 0, .7);
+  bottom: 0;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
