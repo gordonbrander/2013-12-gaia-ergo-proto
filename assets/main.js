@@ -14,15 +14,24 @@ var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
 
+function isNullish(thing) {
+  return thing == null;
+}
+
 // Invoke a method on each object in a spread, presumably mutating that object
 // causing side-effects.
 //
 // Returns a spread of objects after invocation.
 function invoke(spread, method, args) {
-  args = args || [];
   return map(spread, function mapInvoke(object) {
     object[method].apply(object, args);
     return object;
+  });
+}
+
+function pluck(spread, key) {
+  return map(spread, function toPluckedKey(object) {
+    return object[key];
   });
 }
 
@@ -91,6 +100,22 @@ function dissolveIn(element, trigger, ms, easing) {
   });
 }
 
+function swipes(element) {
+  return accumulatable(function accumulateSwipes(next, initial) {
+    var touchstarts = on(element, 'touchstart');
+    var touchmoves = on(element, 'touchmove');
+    var touchends = on(element, 'touchend');
+
+    var swipes = merge([touchstarts, touchmoves, touchends]);
+
+    return swipes;
+  });
+}
+
+function firstTouch(event) {
+  return event.touches[0];
+}
+
 function isTargetRocketBar(event) {
   return event.target.id === 'rb-rocketbar';
 }
@@ -99,49 +124,98 @@ function isTargetRbCancel(event) {
   return event.target.id === 'rb-cancel';
 }
 
+function isTargetRbOverlay(event) {
+  return event.target.id === 'rb-overlay';
+}
+
+function touchXDistance(touch1, touch2) {
+  x1 = touch1.screenX;
+  x2 = touch2.screenX;
+  return x2 - x1;
+}
+
+function touchDistanceY(touch0, touch1) {
+  y1 = touch0.screenY;
+  y2 = touch1.screenY;
+  return (y2 - y1);
+}
+
 function makeTrue() { return true; }
 function makeFalse() { return false; }
 
-// Returns a spread of gesture swipes 
-function swipes(element) {
-  var touchstarts = on(window, 'touchstart');
-  var touchends = on(window, 'touchend');
-}
-
 var touchstarts = on(window, 'touchstart');
+var touchmoves = on(window, 'touchmoves');
+var touchends = on(window, 'touchend');
+var touchcancels = on(window, 'touchcancel');
+var touchmoves = on(window, 'touchmove');
 var clicks = on(window, 'click');
 
 // We want to use clicks instead of touchstart here b/c we don't want to
 // conflict with swipe gesture for RocketBar.
-var rbClicks = filter(clicks, isTargetRocketBar);
-var rbTapOpens = map(rbClicks, makeTrue);
+var rbTouchstarts = filter(touchstarts, isTargetRocketBar);
+var rbTouchmoves = filter(touchmoves, isTargetRocketBar);
+var rbTouchends = filter(touchends, isTargetRocketBar);
+var rbTouchcancels = filter(touchcancels, isTargetRocketBar);
+
+var rbTouchCycles = merge([rbTouchstarts, touchmoves, touchcancels, touchends]);
+
+var rbTouchReductions = reductions(rbTouchCycles, function (cycle, event) {
+  // Reset distanceY.
+  cycle.distanceY = null;
+
+  // At end of touch cycle, calculate distance moved on y axis.
+  // `prev` is the `touchstart` event in this case.
+  if (event.type === 'touchend' || event.type === 'touchcancel') {
+    cycle.distanceY = touchDistanceY(cycle.last.touches[0], cycle.first.touches[0]);
+    cycle.first = null;
+    cycle.last = null;
+  }
+  else if (event.type === 'touchmove') {
+    cycle.last = event;
+  }
+  // @TODO the problem I'm running into is that touchends are not always matched
+  // with touchstarts because I'm targeting starts that happen in RocketBar and
+  // ends that happen elsewhere. Need to be more intelligent about this.
+  else if (event.type === 'touchstart') {
+    cycle.first = event;
+    cycle.last = event;
+  }
+
+  console.log(cycle);
+
+  // Current `event` becomes `prev`.
+  return cycle;
+}, {
+  first: null,
+  last: null,
+  distanceY: null
+});
+
+var rbTaps = filter(rbTouchReductions, function (event) {
+  return event.type === 'touchend' || event.type === 'touchcancel';
+});
+
+accumulate(rbTouchReductions, function (_, event) {  });
 
 var rbCancelTouchstarts = filter(touchstarts, isTargetRbCancel);
 // Prevent default on all rbCancel touch starts.
 var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
 var rbCancels = map(rbCancelPreventedTouchStarts, makeFalse);
 
-var rbOverlayClicks = filter(clicks, function isTargetRbOverlay(event) {
-  return event.target.id === 'rb-overlay';
-});
+var rbOverlayTouchstarts = filter(touchstarts, isTargetRbOverlay);
 
-var rbFocuses = rbTapOpens;
-var rbBlurs = merge([rbCancelPreventedTouchStarts, rbOverlayClicks]);
-var rbExpanding = rbTapOpens;
+var rbFocuses = null;
+var rbBlurs = merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]);
+var rbExpanding = rbTouchstarts;
 var rbShrinking = null; // @TODO
 
-// Convert rocketbar expanded changes to 
-var rbIsExanded = merge([rbCancels, rbTapOpens]);
-
 var keyboardEl = document.getElementById('sys-fake-keyboard');
-
 removeClass(keyboardEl, rbBlurs, 'js-activated');
 addClass(keyboardEl, rbFocuses, 'js-activated');
 
 var rbRocketbarEl = document.getElementById('rb-rocketbar');
-addClass(rbRocketbarEl, rbIsExanded, 'js-expanded');
+addClass(rbRocketbarEl, rbExpanding, 'js-expanded');
 
 var rbOverlayEl = document.getElementById('rb-overlay');
-
 dissolveOut(rbOverlayEl, rbBlurs, 200, 'ease-out');
 dissolveIn(rbOverlayEl, rbFocuses, 200, 'ease-out');
