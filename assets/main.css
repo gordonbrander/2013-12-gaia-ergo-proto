@@ -23,7 +23,7 @@
 }
 
 html {
-  background: #333;
+  background: #000;
   color: #fff;
   font-family: 'Fira Sans', sans-serif;
 }
@@ -32,6 +32,16 @@ html,
 body {
   /* Make sure the body covers the viewport. */
   height: 100%;
+}
+
+/* Remove the gap between images, videos, audio and canvas and the bottom of
+their containers: h5bp.com/i/440 */
+audio,
+canvas,
+img,
+svg,
+video {
+    vertical-align: middle;
 }
 
 /* Utility
@@ -165,7 +175,7 @@ body {
   z-index: 1;
 }
 
-/* Task manager
+/* Task manager .tm-
 ----------------------------------------------------------------------------- */
 
 .tm-task-manager {
@@ -175,4 +185,16 @@ body {
   top: 20px;
   width: 320px;
   z-index: 300;
+}
+
+/* Sheets .sh-
+----------------------------------------------------------------------------- */
+
+.sh-sheet {
+  height: 480px;
+  overflow: auto;
+  position: absolute;
+  top: 20px;
+  width: 320px;
+  z-index: 200;
 }
