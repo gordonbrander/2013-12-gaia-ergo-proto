@@ -160,6 +160,7 @@ video {
   position: absolute;
   top: 20px;
   width: 320px;
+  z-index: 400;
 }
 
 /* Launcher homescreen .hs-
@@ -191,10 +192,22 @@ video {
 ----------------------------------------------------------------------------- */
 
 .sh-sheet {
-  height: 480px;
+  height: 460px;
   overflow: auto;
   position: absolute;
   top: 20px;
   width: 320px;
   z-index: 200;
+}
+
+/* not-notifications .not-
+----------------------------------------------------------------------------- */
+
+.not-notifications {
+  height: 480px;
+  overflow: auto;
+  position: absolute;
+  top: 0;
+  width: 320px;
+  z-index: 250;
 }
