@@ -14,6 +14,12 @@ var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
 
+function print(spread) {
+  accumulate(spread, function (_, item) {
+    console.log(item);
+  });
+}
+
 function isNullish(thing) {
   return thing == null;
 }
@@ -100,18 +106,6 @@ function dissolveIn(element, trigger, ms, easing) {
   });
 }
 
-function swipes(element) {
-  return accumulatable(function accumulateSwipes(next, initial) {
-    var touchstarts = on(element, 'touchstart');
-    var touchmoves = on(element, 'touchmove');
-    var touchends = on(element, 'touchend');
-
-    var swipes = merge([touchstarts, touchmoves, touchends]);
-
-    return swipes;
-  });
-}
-
 function firstTouch(event) {
   return event.touches[0];
 }
@@ -128,16 +122,73 @@ function isTargetRbOverlay(event) {
   return event.target.id === 'rb-overlay';
 }
 
-function touchXDistance(touch1, touch2) {
-  x1 = touch1.screenX;
-  x2 = touch2.screenX;
-  return x2 - x1;
+// Reconfigures spreads of touch events into a spread of objects. Each object
+// will contain a `start` `penultimate` and `end` event. These events let you
+// extrapolate the distance moved between, say the first touch and the
+// last move.
+function touchcycles(touchstarts, touchmoves, touchcancels, touchends) {
+  return accumulatable(function accumulateCycles(next, initial) {
+    // Merge all touch types into a single stream.
+    var cycles = merge([touchstarts, touchmoves, touchcancels, touchends]);
+    // Create closure variables representing the 3 stages of the touch
+    // lifecycle.
+    var start = null;
+    var penultimate = null;
+
+    accumulate(cycles, function (accumulated, event) {
+      var type = event.type;
+
+      // If event is touchstart, assign to start closure var.
+      if (type === 'touchstart') {
+        start = event;
+        penultimate = event;
+      }
+      // If event is move, assign to penultimate closure var. This gives us
+      // access to the last move in the sequence at the end, and allows us to
+      // extrapolate between touchstart and last move.
+      else if (type === 'touchmove') {
+        penultimate = event;
+      }
+      // If we have both a start and an end, this represents a complete touch
+      // cycle.
+      else if (type === 'touchend' || type === 'touchcancel') {
+        if (start && penultimate) accumulated = next(accumulated, {
+          start: start,
+          penultimate: penultimate,
+          end: event
+        });
+
+        // This is the end of the cycle. Reset all closure variables.
+        start = penultimate = null;
+      }
+
+      return accumulated;
+    }, initial);
+  });
 }
 
 function touchDistanceY(touch0, touch1) {
   y1 = touch0.screenY;
   y2 = touch1.screenY;
   return (y2 - y1);
+}
+
+function inRange(number, less, more) {
+  return (number >= less) && (number <= more);
+}
+
+// Given an x/y coord, determine if point is within the RocketBar's touch zone.
+// This is an irregularly shaped hot zone.
+// @TODO take velocity y direction into account when calculating hotzone.
+// @TODO need a second function to handle RocketBar in expanded mode.
+function isInRocketBarCollapsedHotzone(x, y, screenW) {
+  return (
+    // Inside of the status bar box
+    (inRange(x, 0, screenW - 100) && inRange(y, 0, 20)) ||
+    // The "extra" fuzzy space below that doesn't overlap with button area of
+    // app header.
+    (inRange(x, 40, screenW - 100) && inRange(y, 20, 40))
+  );
 }
 
 function makeTrue() { return true; }
@@ -148,63 +199,32 @@ var touchmoves = on(window, 'touchmoves');
 var touchends = on(window, 'touchend');
 var touchcancels = on(window, 'touchcancel');
 var touchmoves = on(window, 'touchmove');
-var clicks = on(window, 'click');
 
 // We want to use clicks instead of touchstart here b/c we don't want to
 // conflict with swipe gesture for RocketBar.
-var rbTouchstarts = filter(touchstarts, isTargetRocketBar);
-var rbTouchmoves = filter(touchmoves, isTargetRocketBar);
-var rbTouchends = filter(touchends, isTargetRocketBar);
-var rbTouchcancels = filter(touchcancels, isTargetRocketBar);
-
-var rbTouchCycles = merge([rbTouchstarts, touchmoves, touchcancels, touchends]);
-
-var rbTouchReductions = reductions(rbTouchCycles, function (cycle, event) {
-  // Reset distanceY.
-  cycle.distanceY = null;
-
-  // At end of touch cycle, calculate distance moved on y axis.
-  // `prev` is the `touchstart` event in this case.
-  if (event.type === 'touchend' || event.type === 'touchcancel') {
-    cycle.distanceY = touchDistanceY(cycle.last.touches[0], cycle.first.touches[0]);
-    cycle.first = null;
-    cycle.last = null;
-  }
-  else if (event.type === 'touchmove') {
-    cycle.last = event;
-  }
-  // @TODO the problem I'm running into is that touchends are not always matched
-  // with touchstarts because I'm targeting starts that happen in RocketBar and
-  // ends that happen elsewhere. Need to be more intelligent about this.
-  else if (event.type === 'touchstart') {
-    cycle.first = event;
-    cycle.last = event;
-  }
-
-  console.log(cycle);
-
-  // Current `event` becomes `prev`.
-  return cycle;
-}, {
-  first: null,
-  last: null,
-  distanceY: null
+var rbTouchstarts = filter(touchstarts, function isEventInRocketBarHotzone(event) {
+  var firstTouchX = event.touches[0].screenX;
+  var firstTouchY = event.touches[0].screenY;
+  return isInRocketBarCollapsedHotzone(firstTouchX, firstTouchY, screen.width);
 });
 
-var rbTaps = filter(rbTouchReductions, function (event) {
-  return event.type === 'touchend' || event.type === 'touchcancel';
-});
+var rbTouchcycles = touchcycles(rbTouchstarts, touchmoves, touchcancels, touchends);
 
-accumulate(rbTouchReductions, function (_, event) {  });
+// Taps on RocketBar are any swipe that covers very little ground.
+var rbTaps = filter(rbTouchcycles, function (cycle) {
+  // Calculate y distance moved.
+  var distanceMoved = touchDistanceY(cycle.start.touches[0], cycle.penultimate.touches[0]);
+  // Filter out touch cycle that moved more than 20px.
+  return distanceMoved < 20;
+});
 
 var rbCancelTouchstarts = filter(touchstarts, isTargetRbCancel);
 // Prevent default on all rbCancel touch starts.
 var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
-var rbCancels = map(rbCancelPreventedTouchStarts, makeFalse);
 
 var rbOverlayTouchstarts = filter(touchstarts, isTargetRbOverlay);
 
-var rbFocuses = null;
+var rbFocuses = rbTaps;
 var rbBlurs = merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]);
 var rbExpanding = rbTouchstarts;
 var rbShrinking = null; // @TODO
@@ -215,6 +235,12 @@ addClass(keyboardEl, rbFocuses, 'js-activated');
 
 var rbRocketbarEl = document.getElementById('rb-rocketbar');
 addClass(rbRocketbarEl, rbExpanding, 'js-expanded');
+
+var rbCancelEl = document.getElementById('rb-cancel');
+removeClass(rbCancelEl, rbFocuses, 'js-hide');
+
+var taskManagerEl = document.getElementById('tm-task-manager');
+dissolveIn(taskManagerEl, rbExpanding, 200, 'ease-out');
 
 var rbOverlayEl = document.getElementById('rb-overlay');
 dissolveOut(rbOverlayEl, rbBlurs, 200, 'ease-out');

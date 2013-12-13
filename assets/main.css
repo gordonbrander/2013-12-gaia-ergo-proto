@@ -162,4 +162,17 @@ body {
   position: absolute;
   top: 20px;
   width: 320px;
+  z-index: 1;
+}
+
+/* Task manager
+----------------------------------------------------------------------------- */
+
+.tm-task-manager {
+  background: #484848;
+  height: 460px;
+  position: absolute;
+  top: 20px;
+  width: 320px;
+  z-index: 300;
 }
