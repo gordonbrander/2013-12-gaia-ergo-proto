@@ -78,6 +78,8 @@ function extend_(into, object0, object1) {
 
   // Shallow copy all properties of `object1` to `into`.
   for (key in object1) into[key] = object1[key];
+
+  // Return finished object.
   return into;
 }
 
@@ -119,7 +121,8 @@ function states(diffs, state) {
 
 // Creates an assertion function for `compareAdjacent()`. Checks if a given
 // property at `path` is equal to `from` on `prev` and equal to `to` in
-// `curr`.
+// `curr`. This gives you state machine-like functionality when used with
+// `route()`.
 function changed(key, from, to) {
   function isChanged(prev, curr) {
     return prev[key] === from && curr[key] === to;
@@ -367,6 +370,14 @@ function app(window) {
   var whenRbFocused = route(appStates, [
     currently('is_rocketbar_focused', true)
   ]);
+
+  var whenRbBlurred = route(appStates, [
+    currently('is_rocketbar_focused', false)
+  ]);
+
+  var keyboardEl = document.getElementById('sys-fake-keyboard');
+  addClass(keyboardEl, whenRbFocused, 'js-activated');
+  removeClass(keyboardEl, whenRbBlurred, 'js-activated');
 
   return appStates;
 }
