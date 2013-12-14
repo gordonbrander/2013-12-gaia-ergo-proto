@@ -46,10 +46,6 @@ function isObject(thing) {
   return thing && typeof thing === 'object';
 }
 
-function isArray(thing) {
-  return thing instanceof Array;
-}
-
 // Filter items based on adjacent item using function `assert` to compare.
 // Returns a new spread of items that pass `assert`.
 function compareAdjacent(spread, assert) {
@@ -73,58 +69,85 @@ function dropRepeats(spread) {
   return compareAdjacent(spread, isDifferent);
 }
 
+// Extend `into` with the values of 2 other objects.
+function extend_(into, object0, object1) {
+  var key;
 
-// Patch an `object` with a `diff` object. If the objects are different, will
-// return a new object, patched with `diff`. Patch will deep-extend objects,
-// but not arrays.
-function patch(object, diff) {
-  var key, prev, curr;
+  // Shallow copy all properties of `object0` to `into`.
+  for (key in object0) into[key] = object0[key];
 
-  // Check if values in diff are alread equal to values in object.
-  var isChanged = false;
-  for (key in diff) isChanged = (isChanged ? true : object[key] !== diff[key]);
-
-  // If nothing has changed, return `object`. Nothing more to do.
-  if (!isChanged) return object;
-
-  // If changes have been made, create a new object to hold changes.
-  var into = {};
-
-  // Shallow copy all properties of `prev` to `into`.
-  for (key in object) into[key] = object[key];
-
-  for (key in diff) {
-    curr = diff[key];
-    prev = into[key];
-
-    // If property has gone from an object to an object, we do a deep patch
-    // on that object. We don't deep-patch arrays.
-    if (isObject(curr) && isObject(prev) && !isArray(curr) && !isArray(prev)) {
-      into[key] = patch(prev, curr);
-    }
-    // Otherwise, a shallow copy of value will suffice.
-    else {
-      into[key] = diff[key];
-    }
-  }
-
+  // Shallow copy all properties of `object1` to `into`.
+  for (key in object1) into[key] = object1[key];
   return into;
+}
+
+// Checks if `set` contains all the values present in `subset`.
+function contains(set, subset) {
+  if (!isObject(set) || !isObject(subset)) return false;
+
+  // Check if values in subset are equal to values in object.
+  var isMissing = false;
+  for (var key in subset) isMissing = (isMissing ? true : set[key] !== subset[key]);
+
+  return !isMissing;
 }
 
 // Patch a series of diffs on to a state object.
 // Returns a spread with each state of the object over time. Note that the same
 // mutated object is used every time.
-function states(diffs, initial) {
-  return dropRepeats(reductions(diffs, patch, initial || {}));
+function states(diffs, state) {
+  return accumulatable(function accumulateStates(next, initial) {
+    var accumulated = initial;
+
+    function nextDiff(state, diff) {
+      if (diff === end) {
+        next(accumulated, end);
+      }
+      // If values in `state` are different from values in `diff`...
+      else if (!contains(state, diff)) {
+        // Update state.
+        state = extend_({}, state, diff);
+        // Accumulate `next` with new state.
+        accumulated = next(accumulated, state);
+      }
+      return state;
+    }
+
+    accumulate(diffs, nextDiff, state || {});
+  });
 }
 
-function prev(spread) {
-  return accumulatable(function accumulatePrev(next, initial) {
-    var accumulated = initial;
-    accumulate(spread, function nextAccumulate(prev, item) {
-      accumulated = next(accumulated, prev);
-      return item;
-    }, null);
+// Creates an assertion function for `compareAdjacent()`. Checks if a given
+// property at `path` is equal to `from` on `prev` and equal to `to` in
+// `curr`.
+function changed(key, from, to) {
+  function isChanged(prev, curr) {
+    return prev[key] === from && curr[key] === to;
+  }
+  return isChanged;
+}
+
+// Creates an assertion function for `compareAdjacent()`. Checks if a given
+// property at `path` is equal to `value`.
+function currently(key, value) {
+  function isCurrently(prev, curr) {
+    return curr[key] === value;
+  }
+  return isCurrently;
+}
+
+// "route" global states based on a series of assertions which have an "and"
+// relationship.
+function route(spread, assertions) {
+  return compareAdjacent(spread, function assertPassing(prev, curr) {
+    var isPassing = false;
+
+    // Run every assertion function in sequence. If any are not passed,
+    // isPassing becomes false. Every assertion must return true.
+    for (var i = 0; i < assertions.length; i += 1)
+      isPassing = isPassing ? assertions[i](prev, curr) : false;
+
+    return isPassing;
   });
 }
 
@@ -278,44 +301,79 @@ function isInRocketBarCollapsedHotzone(x, y, screenW) {
   );
 }
 
-function makeTrue() { return true; }
-function makeFalse() { return false; }
+// Convert every item in a spread into given value.
+function becomes(spread, value) {
+  return reductions(spread, id, value);
+}
 
-var touchstarts = on(window, 'touchstart');
-var touchmoves = on(window, 'touchmoves');
-var touchends = on(window, 'touchend');
-var touchcancels = on(window, 'touchcancel');
-var touchmoves = on(window, 'touchmove');
+function app(window) {
+  // Listen for touch events.
+  var touchstarts = on(window, 'touchstart');
+  var touchmoves = on(window, 'touchmove');
+  var touchends = on(window, 'touchend');
+  var touchcancels = on(window, 'touchcancel');
 
-// We want to use clicks instead of touchstart here b/c we don't want to
-// conflict with swipe gesture for RocketBar.
-var rbTouchstarts = filter(touchstarts, function isEventInRocketBarHotzone(event) {
-  var firstTouchX = event.touches[0].screenX;
-  var firstTouchY = event.touches[0].screenY;
-  return isInRocketBarCollapsedHotzone(firstTouchX, firstTouchY, screen.width);
-});
+  // Find touch events that start within RocketBar's hot zone.
+  var rbTouchstarts = filter(touchstarts, function isEventInRocketBarHotzone(event) {
+    var firstTouchX = event.touches[0].screenX;
+    var firstTouchY = event.touches[0].screenY;
+    return isInRocketBarCollapsedHotzone(firstTouchX, firstTouchY, screen.width);
+  });
 
-var rbTouchcycles = touchcycles(rbTouchstarts, touchmoves, touchcancels, touchends);
+  // Combine RocketBar touch starts with other touch cycle events.
+  var rbTouchcycles = touchcycles(rbTouchstarts, touchmoves, touchcancels, touchends);
 
-// Taps on RocketBar are any swipe that covers very little ground.
-var rbTaps = filter(rbTouchcycles, function (cycle) {
-  // Calculate y distance moved.
-  var distanceMoved = touchDistanceY(cycle.start.touches[0], cycle.penultimate.touches[0]);
-  // Filter out touch cycle that moved more than 20px.
-  return distanceMoved < 20;
-});
+  // Taps on RocketBar are any swipe that covers very little ground.
+  var rbTaps = filter(rbTouchcycles, function (cycle) {
+    // Calculate y distance moved.
+    var distanceMoved = touchDistanceY(cycle.start.touches[0], cycle.penultimate.touches[0]);
+    // Filter out touch cycle that moved more than 20px.
+    return distanceMoved < 10;
+  });
 
-var rbCancelTouchstarts = filter(touchstarts, isTargetRbCancel);
-// Prevent default on all rbCancel touch starts.
-var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
+  var rbCancelTouchstarts = filter(touchstarts, isTargetRbCancel);
+  // Prevent default on all rbCancel touch starts.
+  var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
 
-var rbOverlayTouchstarts = filter(touchstarts, isTargetRbOverlay);
+  var rbOverlayTouchstarts = filter(touchstarts, isTargetRbOverlay);
 
-var rbFocuses = rbTaps;
-var rbBlurs = merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]);
-var rbExpanding = rbTouchstarts;
-var rbShrinking = null; // @TODO
+  // Map to states
 
+  var rbFocuses = becomes(rbTaps, { is_rocketbar_focused: true, is_rocketbar_expanded: true });
+
+  var rbBlurs = becomes(merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]), {
+    is_rocketbar_focused: false
+  });
+
+  var rbExpanding = becomes(rbTouchstarts, { is_rocketbar_expanded: true });
+
+  var rbShrinking = null; // @TODO
+
+  var allDiffs = merge([rbFocuses, rbBlurs, rbExpanding, rbShrinking]);
+
+  // Merge into global state object.
+  var appStates = states(allDiffs, {
+    is_rocketbar_expanded: false,
+    is_rocketbar_focused: false,
+    is_rocketbar_showing_results: false
+  });
+
+  // The difference here is that I'm getting a global state object.
+  // Do I need it when I can simply merge together all the related states
+  // I care about? Yeah I do because state lingers, but signals do not. Somthing
+  // like this would have to happen at some point. Better to have it centralized
+  // as a source of truth. I'm not asking "has this just changed" but "have any
+  // of these just changed".
+  var whenRbFocused = route(appStates, [
+    currently('is_rocketbar_focused', true)
+  ]);
+
+  return appStates;
+}
+
+print(app(window));
+
+/*
 var keyboardEl = document.getElementById('sys-fake-keyboard');
 removeClass(keyboardEl, rbBlurs, 'js-activated');
 addClass(keyboardEl, rbFocuses, 'js-activated');
@@ -332,3 +390,4 @@ dissolveIn(taskManagerEl, rbExpanding, 200, 'ease-out');
 var rbOverlayEl = document.getElementById('rb-overlay');
 dissolveOut(rbOverlayEl, rbBlurs, 200, 'ease-out');
 dissolveIn(rbOverlayEl, rbFocuses, 200, 'ease-out');
+*/
