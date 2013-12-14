@@ -13,6 +13,7 @@ var accumulatable = a.accumulatable;
 var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
+var id = a.id;
 
 function print(spread) {
   accumulate(spread, function (_, item) {
@@ -38,6 +39,92 @@ function invoke(spread, method, args) {
 function pluck(spread, key) {
   return map(spread, function toPluckedKey(object) {
     return object[key];
+  });
+}
+
+function isObject(thing) {
+  return thing && typeof thing === 'object';
+}
+
+function isArray(thing) {
+  return thing instanceof Array;
+}
+
+// Filter items based on adjacent item using function `assert` to compare.
+// Returns a new spread of items that pass `assert`.
+function compareAdjacent(spread, assert) {
+  return accumulatable(function accumulateFilterAdjacent(next, initial) {
+    var accumulated = initial;
+    accumulate(spread, function nextCompare(prev, item) {
+      if (item === end) next(accumulated, end);
+      else if (assert(prev, item)) accumulated = next(accumulated, item);
+      return item;
+    }, null);
+  });
+}
+
+// Are 2 things not equal?
+function isDifferent(thing0, thing1) {
+  return thing0 !== thing1;
+}
+
+// Drop adjacent repeats from spread.
+function dropRepeats(spread) {
+  return compareAdjacent(spread, isDifferent);
+}
+
+
+// Patch an `object` with a `diff` object. If the objects are different, will
+// return a new object, patched with `diff`. Patch will deep-extend objects,
+// but not arrays.
+function patch(object, diff) {
+  var key, prev, curr;
+
+  // Check if values in diff are alread equal to values in object.
+  var isChanged = false;
+  for (key in diff) isChanged = (isChanged ? true : object[key] !== diff[key]);
+
+  // If nothing has changed, return `object`. Nothing more to do.
+  if (!isChanged) return object;
+
+  // If changes have been made, create a new object to hold changes.
+  var into = {};
+
+  // Shallow copy all properties of `prev` to `into`.
+  for (key in object) into[key] = object[key];
+
+  for (key in diff) {
+    curr = diff[key];
+    prev = into[key];
+
+    // If property has gone from an object to an object, we do a deep patch
+    // on that object. We don't deep-patch arrays.
+    if (isObject(curr) && isObject(prev) && !isArray(curr) && !isArray(prev)) {
+      into[key] = patch(prev, curr);
+    }
+    // Otherwise, a shallow copy of value will suffice.
+    else {
+      into[key] = diff[key];
+    }
+  }
+
+  return into;
+}
+
+// Patch a series of diffs on to a state object.
+// Returns a spread with each state of the object over time. Note that the same
+// mutated object is used every time.
+function states(diffs, initial) {
+  return dropRepeats(reductions(diffs, patch, initial || {}));
+}
+
+function prev(spread) {
+  return accumulatable(function accumulatePrev(next, initial) {
+    var accumulated = initial;
+    accumulate(spread, function nextAccumulate(prev, item) {
+      accumulated = next(accumulated, prev);
+      return item;
+    }, null);
   });
 }
 
