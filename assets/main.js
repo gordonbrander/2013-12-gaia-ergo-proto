@@ -14,6 +14,7 @@ var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
 var id = a.id;
+var slice = a.slice;
 
 function print(spread) {
   accumulate(spread, function (_, item) {
@@ -46,15 +47,19 @@ function isObject(thing) {
   return thing && typeof thing === 'object';
 }
 
-// Filter items based on adjacent item using function `assert` to compare.
+// Filter items in stream by comparing adjacent items using using function
+// `assert` to compare.
+//
 // Returns a new spread of items that pass `assert`.
-function compareAdjacent(spread, assert) {
+function asserts(spread, assert) {
   return accumulatable(function accumulateFilterAdjacent(next, initial) {
     var accumulated = initial;
-    accumulate(spread, function nextCompare(prev, item) {
-      if (item === end) next(accumulated, end);
-      else if (assert(prev, item)) accumulated = next(accumulated, item);
-      return item;
+    accumulate(spread, function nextAssert(left, right) {
+      if (right === end) next(accumulated, end);
+      else if (assert(left, right)) accumulated = next(accumulated, right);
+
+      // Right becomes new left for nextAssert.
+      return right;
     }, null);
   });
 }
@@ -66,7 +71,7 @@ function isDifferent(thing0, thing1) {
 
 // Drop adjacent repeats from spread.
 function dropRepeats(spread) {
-  return compareAdjacent(spread, isDifferent);
+  return asserts(spread, isDifferent);
 }
 
 // Extend `into` with the values of 2 other objects.
@@ -119,30 +124,63 @@ function states(diffs, state) {
   });
 }
 
-// Creates an assertion function for `compareAdjacent()`. Checks if a given
+// Get value at `key` on `thing`, or null if `thing` is not an object.
+function get(thing, key) {
+  return thing ? thing[key] : null;
+}
+
+// Creates an assertion function that checks if a given
 // property at `path` is equal to `from` on `prev` and equal to `to` in
-// `curr`. This gives you state machine-like functionality when used with
-// `route()`.
-function changed(key, from, to) {
+// `curr`.
+//
+// This gives you state machine-like functionality when used with
+// `asserts()`. For example, to get a spread of all states where your
+// became `awesome`:
+//
+//     var x = asserts(appStates, transitioned('awesome', false, true));
+function transitioned(key, from, to) {
+  function hasTransitioned(prev, curr) {
+    return get(prev, key) === from && get(curr, key) === to;
+  }
+  return hasTransitioned;
+}
+
+// Creates an assertion function that checks if a given
+// property at `path` is equal to `to` on `curr` but not on `prev`
+function changed(key, to) {
   function isChanged(prev, curr) {
-    return prev[key] === from && curr[key] === to;
+    return get(prev, key) !== to && get(curr, key) === to;
   }
   return isChanged;
 }
 
-// Creates an assertion function for `compareAdjacent()`. Checks if a given
-// property at `path` is equal to `value`.
+// Creates an assertion function that checks if a given
+// property at `key` is equal to `value` in `curr`.
 function currently(key, value) {
   function isCurrently(prev, curr) {
-    return curr[key] === value;
+    return get(curr, key) === value;
   }
   return isCurrently;
 }
 
-// "route" global states based on a series of assertions which have an "and"
-// relationship.
-function route(spread, assertions) {
-  return compareAdjacent(spread, function assertPassing(prev, curr) {
+// Creates an assertion function that checks if a given
+// property at `key` is equal to `value` in `prev`.
+function previously(key, value) {
+  function wasPreviously(prev, curr) {
+    return get(prev, key) === value;
+  }
+  return wasPreviously;
+}
+
+// Combine `n` assertion functions into a single assertion function
+// that tests all given assertions using an `and` relationship.
+//
+// Pass each assertion function as an argument to `and`. Returns an
+// assertion function.
+function all(/* assertion, ... */) {
+  var assertions = slice(arguments);
+
+  function assertPassing(prev, curr) {
     var isPassing = false;
 
     // Run every assertion function in sequence. If any are not passed,
@@ -151,7 +189,9 @@ function route(spread, assertions) {
       isPassing = isPassing ? assertions[i](prev, curr) : false;
 
     return isPassing;
-  });
+  }
+
+  return assertPassing;
 }
 
 function timeout(ms) {
@@ -217,10 +257,6 @@ function dissolveIn(element, trigger, ms, easing) {
     var time = timeout(ms + 100);
     write(element, time, updateDissolveIn, enterDissolveIn, exitDissolveIn);
   });
-}
-
-function firstTouch(event) {
-  return event.touches[0];
 }
 
 function isTargetRocketBar(event) {
@@ -318,9 +354,12 @@ function app(window) {
 
   // Find touch events that start within RocketBar's hot zone.
   var rbTouchstarts = filter(touchstarts, function isEventInRocketBarHotzone(event) {
-    var firstTouchX = event.touches[0].screenX;
-    var firstTouchY = event.touches[0].screenY;
-    return isInRocketBarCollapsedHotzone(firstTouchX, firstTouchY, screen.width);
+    var firstTouch = event.touches[0];
+    return isInRocketBarCollapsedHotzone(
+      firstTouch.screenX,
+      firstTouch.screenY,
+      screen.width
+    );
   });
 
   // Combine RocketBar touch starts with other touch cycle events.
@@ -356,6 +395,9 @@ function app(window) {
 
   // Merge into global state object.
   var appStates = states(allDiffs, {
+    // @TODO rocketbar expands with task manager mode, but expansion is
+    // independent (loading, homescreen etc).
+    is_mode_task_manager: false,
     is_rocketbar_expanded: false,
     is_rocketbar_focused: false,
     is_rocketbar_showing_results: false
@@ -367,17 +409,38 @@ function app(window) {
   // like this would have to happen at some point. Better to have it centralized
   // as a source of truth. I'm not asking "has this just changed" but "have any
   // of these just changed".
-  var whenRbFocused = route(appStates, [
-    currently('is_rocketbar_focused', true)
-  ]);
+  var whenRbFocused = asserts(appStates, changed('is_rocketbar_focused', true));
 
-  var whenRbBlurred = route(appStates, [
-    currently('is_rocketbar_focused', false)
-  ]);
+  var whenRbBlurred = asserts(appStates, changed('is_rocketbar_focused', false));
+
+  var whenRbExpanded = asserts(appStates, changed('is_rocketbar_expanded', true));
+
+  /*
+  @TODO shorten and waterfall animations when going straight to focused.
+  var whenRbFocused = asserts(appStates, all(
+    changed('is_rocketbar_focused', true),
+    previously('is_rocketbar_expanded', true)
+  ));
+
+  var whenRbFocusedImmediately = asserts(appStates, all(
+    changed('is_rocketbar_focused', true),
+    previously('is_rocketbar_expanded', false)
+  ));
+ */
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
   addClass(keyboardEl, whenRbFocused, 'js-activated');
   removeClass(keyboardEl, whenRbBlurred, 'js-activated');
+
+  var rbOverlayEl = document.getElementById('rb-overlay');
+  dissolveOut(rbOverlayEl, whenRbBlurred, 200, 'ease-out');
+  dissolveIn(rbOverlayEl, whenRbFocused, 200, 'ease-out');
+
+  var rbRocketbarEl = document.getElementById('rb-rocketbar');
+  addClass(rbRocketbarEl, whenRbExpanded, 'js-expanded');
+
+  var taskManagerEl = document.getElementById('tm-task-manager');
+  dissolveIn(taskManagerEl, whenRbExpanded, 200, 'ease-out');
 
   return appStates;
 }
@@ -385,20 +448,7 @@ function app(window) {
 print(app(window));
 
 /*
-var keyboardEl = document.getElementById('sys-fake-keyboard');
-removeClass(keyboardEl, rbBlurs, 'js-activated');
-addClass(keyboardEl, rbFocuses, 'js-activated');
-
-var rbRocketbarEl = document.getElementById('rb-rocketbar');
-addClass(rbRocketbarEl, rbExpanding, 'js-expanded');
-
 var rbCancelEl = document.getElementById('rb-cancel');
 removeClass(rbCancelEl, rbFocuses, 'js-hide');
 
-var taskManagerEl = document.getElementById('tm-task-manager');
-dissolveIn(taskManagerEl, rbExpanding, 200, 'ease-out');
-
-var rbOverlayEl = document.getElementById('rb-overlay');
-dissolveOut(rbOverlayEl, rbBlurs, 200, 'ease-out');
-dissolveIn(rbOverlayEl, rbFocuses, 200, 'ease-out');
 */
