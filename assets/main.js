@@ -436,6 +436,8 @@ function app(window) {
   // Prevent default on all rbCancel touch starts.
   var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
 
+  // Overlay's diff should include shrinking the RocketBar in cases where not
+  // in Task Manager mode. Need to use sample().
   var rbOverlayTouchstarts = filter(touchstarts, isTargetRbOverlay);
 
   // Map to states
@@ -474,22 +476,17 @@ function app(window) {
     is_rocketbar_showing_results: false
   });
 
-  // The difference here is that I'm getting a global state object.
-  // Do I need it when I can simply merge together all the related states
-  // I care about? Yeah I do because state lingers, but signals do not. Somthing
-  // like this would have to happen at some point. Better to have it centralized
-  // as a source of truth. I'm not asking "has this just changed" but "have any
-  // of these just changed".
+  var toRbFocusedFromAnywhere = routes(appStates, transitioned('is_rocketbar_focused', false, true));
 
-  // @TODO shorten and waterfall animations when going straight to focused.
-  var whenRbFocused = routes(appStates, all(
-    changed('is_rocketbar_focused', true),
-    previously('is_rocketbar_expanded', true)
+  var toRbFocusedFromTaskManager = routes(appStates, all(
+    transitioned('is_rocketbar_focused', false, true),
+    previously('is_mode_task_manager', true)
   ));
 
-  var whenRbFocusedImmediately = routes(appStates, all(
+  // @TODO shorten and waterfall animations when going straight to focused.
+  var toRbFocusedImmediately = routes(appStates, all(
     changed('is_rocketbar_focused', true),
-    previously('is_rocketbar_expanded', false)
+    previously('is_mode_task_manager', false)
   ));
 
   var whenRbBlurred = routes(appStates, changed('is_rocketbar_focused', false));
@@ -499,12 +496,12 @@ function app(window) {
   var whenModeTaskManager = routes(appStates, transitioned('is_mode_task_manager', false, true));
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
-  addClass(keyboardEl, whenRbFocused, 'js-activated');
+  addClass(keyboardEl, toRbFocusedFromAnywhere, 'js-activated');
   removeClass(keyboardEl, whenRbBlurred, 'js-activated');
 
   var rbOverlayEl = document.getElementById('rb-overlay');
+  dissolveIn(rbOverlayEl, toRbFocusedFromAnywhere, 200, 'ease-out');
   dissolveOut(rbOverlayEl, whenRbBlurred, 200, 'ease-out');
-  dissolveIn(rbOverlayEl, whenRbFocused, 200, 'ease-out');
 
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
   addClass(rbRocketbarEl, whenRbExpanded, 'js-expanded');
