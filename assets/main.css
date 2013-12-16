@@ -139,7 +139,7 @@ video {
 }
 
 .rb-overlay {
-  background: rgba(0, 0, 0, .7);
+  background: rgba(0, 0, 0, .5);
   bottom: 0;
   left: 0;
   position: absolute;
