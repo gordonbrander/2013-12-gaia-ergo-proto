@@ -100,17 +100,27 @@ function contains(set, subset) {
 }
 
 // Patch a series of diffs on to a state object.
-// Returns a spread with each state of the object over time. Note that the same
-// mutated object is used every time.
+// Returns a spread with each state of the object over time.
+//
+// Note: it's a bad idea to mutate this state object from assertion functions
+// because other consumers will also be using it, introducing state-related
+// bugs. Instead, send your changes to state as part of `diffs` spread, so
+// all other consumers can be notified of change.
 function states(diffs, state) {
   return accumulatable(function accumulateStates(next, initial) {
-    var accumulated = initial;
+    // State must always be an object.
+    state = state || {};
+
+    // Accumulate initial state.
+    var accumulated = next(initial, state);
 
     function nextDiff(state, diff) {
       if (diff === end) {
         next(accumulated, end);
       }
       // If values in `state` are different from values in `diff`...
+      // This is a shallow comparison of strict equality.
+      // Goal: diffs that do not change current state are skipped.
       else if (!contains(state, diff)) {
         // Update state.
         state = extend_({}, state, diff);
@@ -120,7 +130,20 @@ function states(diffs, state) {
       return state;
     }
 
-    accumulate(diffs, nextDiff, state || {});
+    accumulate(diffs, nextDiff, state);
+  });
+}
+
+// Route states using assertion function.
+// Returns a new spread that contains the values which
+// pass `assert(left, right)`.
+function routes(states, assert) {
+  return asserts(states, function assertRoute(left, right) {
+    // Wrap assertion, skipping first left value (which will be null). The
+    // first right value will be initial state. Skipping the null value will
+    // mean the first assertion hit will compare initial state to first
+    // patched state.
+    return (left !== null) ? assert(left, right) : false;
   });
 }
 
@@ -140,7 +163,7 @@ function get(thing, key) {
 //     var x = asserts(appStates, transitioned('awesome', false, true));
 function transitioned(key, from, to) {
   function hasTransitioned(prev, curr) {
-    return get(prev, key) === from && get(curr, key) === to;
+    return (get(prev, key) === from) && (get(curr, key) === to);
   }
   return hasTransitioned;
 }
@@ -149,7 +172,7 @@ function transitioned(key, from, to) {
 // property at `path` is equal to `to` on `curr` but not on `prev`
 function changed(key, to) {
   function isChanged(prev, curr) {
-    return get(prev, key) !== to && get(curr, key) === to;
+    return (get(prev, key) !== to) && (get(curr, key) === to);
   }
   return isChanged;
 }
@@ -175,12 +198,15 @@ function previously(key, value) {
 // Combine `n` assertion functions into a single assertion function
 // that tests all given assertions using an `and` relationship.
 //
-// Pass each assertion function as an argument to `and`. Returns an
+// Pass each assertion function as an argument to `all`. Returns an
 // assertion function.
-function all(/* assertion, ... */) {
+//
+// Protip: returned assertion function is composable with `all` or `any`
+// allowing for complex nested boolean logic.
+function all(/* assert, ... */) {
   var assertions = slice(arguments);
 
-  function assertPassing(prev, curr) {
+  function assertAll(prev, curr) {
     var isPassing = false;
 
     // Run every assertion function in sequence. If any are not passed,
@@ -191,7 +217,32 @@ function all(/* assertion, ... */) {
     return isPassing;
   }
 
-  return assertPassing;
+  return assertAll;
+}
+
+// Combine `n` assertion functions into a single assertion function
+// that tests all given assertions using an `or` relationship.
+//
+// Pass each assertion function as an argument to `any`. Returns an
+// assertion function.
+//
+// Protip: returned assertion function is composable with `all` or `any`
+// allowing for complex nested boolean logic.
+function any(/* assert, ... */) {
+  var assertions = slice(arguments);
+
+  function assertAny(prev, curr) {
+    var isPassing = false;
+
+    // Run every assertion function in sequence. If any are not passed,
+    // isPassing becomes false. Every assertion must return true.
+    for (var i = 0; i < assertions.length; i += 1)
+      isPassing = !isPassing ? assertions[i](prev, curr) : true;
+
+    return isPassing;
+  }
+
+  return assertAny;
 }
 
 function timeout(ms) {
@@ -340,6 +391,14 @@ function isInRocketBarCollapsedHotzone(x, y, screenW) {
   );
 }
 
+// Filter tap cycles, determining if a swipe distance was moved during cycle.
+function isTap(cycle) {
+  // Calculate y distance moved.
+  var distanceMoved = touchDistanceY(cycle.start.touches[0], cycle.penultimate.touches[0]);
+  // Filter out touch cycle that moved more than 20px.
+  return distanceMoved < 10;
+}
+
 // Convert every item in a spread into given value.
 function becomes(spread, value) {
   return reductions(spread, id, value);
@@ -366,12 +425,12 @@ function app(window) {
   var rbTouchcycles = touchcycles(rbTouchstarts, touchmoves, touchcancels, touchends);
 
   // Taps on RocketBar are any swipe that covers very little ground.
-  var rbTaps = filter(rbTouchcycles, function (cycle) {
-    // Calculate y distance moved.
-    var distanceMoved = touchDistanceY(cycle.start.touches[0], cycle.penultimate.touches[0]);
-    // Filter out touch cycle that moved more than 20px.
-    return distanceMoved < 10;
-  });
+  var rbTaps = filter(rbTouchcycles, isTap);
+
+  // Swipes on RocketBar are anything else.
+  // @TODO if ergo of swipable area is feeling bad, can create separate
+  // touchcycle that expands hotzone based on direction of swipe.
+  var rbSwipes = reject(rbTouchcycles, isTap);
 
   var rbCancelTouchstarts = filter(touchstarts, isTargetRbCancel);
   // Prevent default on all rbCancel touch starts.
@@ -381,17 +440,29 @@ function app(window) {
 
   // Map to states
 
-  var rbFocuses = becomes(rbTaps, { is_rocketbar_focused: true, is_rocketbar_expanded: true });
+  var rbFocuses = becomes(rbTaps, {
+    is_rocketbar_focused: true,
+    is_rocketbar_expanded: true
+  });
 
+  // @TODO I may have to do some sampling against current state to determine
+  // if RB stays expanded.
   var rbBlurs = becomes(merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]), {
     is_rocketbar_focused: false
   });
 
-  var rbExpanding = becomes(rbTouchstarts, { is_rocketbar_expanded: true });
+  var toModeTaskManager = becomes(rbSwipes, {
+    is_rocketbar_expanded: true,
+    is_mode_task_manager: true
+  });
 
-  var rbShrinking = null; // @TODO
+  // @TODO loaded URL, scrolling homescreen, etc.
+  var rbShrinking = null;
 
-  var allDiffs = merge([rbFocuses, rbBlurs, rbExpanding, rbShrinking]);
+  // @TODO loading URL, other cases that are independent of modes.
+  var rbExpanding = null;
+
+  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager]);
 
   // Merge into global state object.
   var appStates = states(allDiffs, {
@@ -409,24 +480,23 @@ function app(window) {
   // like this would have to happen at some point. Better to have it centralized
   // as a source of truth. I'm not asking "has this just changed" but "have any
   // of these just changed".
-  var whenRbFocused = asserts(appStates, changed('is_rocketbar_focused', true));
 
-  var whenRbBlurred = asserts(appStates, changed('is_rocketbar_focused', false));
-
-  var whenRbExpanded = asserts(appStates, changed('is_rocketbar_expanded', true));
-
-  /*
-  @TODO shorten and waterfall animations when going straight to focused.
-  var whenRbFocused = asserts(appStates, all(
+  // @TODO shorten and waterfall animations when going straight to focused.
+  var whenRbFocused = routes(appStates, all(
     changed('is_rocketbar_focused', true),
     previously('is_rocketbar_expanded', true)
   ));
 
-  var whenRbFocusedImmediately = asserts(appStates, all(
+  var whenRbFocusedImmediately = routes(appStates, all(
     changed('is_rocketbar_focused', true),
     previously('is_rocketbar_expanded', false)
   ));
- */
+
+  var whenRbBlurred = routes(appStates, changed('is_rocketbar_focused', false));
+
+  var whenRbExpanded = routes(appStates, changed('is_rocketbar_expanded', true));
+
+  var whenModeTaskManager = routes(appStates, transitioned('is_mode_task_manager', false, true));
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
   addClass(keyboardEl, whenRbFocused, 'js-activated');
@@ -440,7 +510,7 @@ function app(window) {
   addClass(rbRocketbarEl, whenRbExpanded, 'js-expanded');
 
   var taskManagerEl = document.getElementById('tm-task-manager');
-  dissolveIn(taskManagerEl, whenRbExpanded, 200, 'ease-out');
+  dissolveIn(taskManagerEl, whenModeTaskManager, 200, 'ease-out');
 
   return appStates;
 }
