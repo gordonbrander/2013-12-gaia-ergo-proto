@@ -1,3 +1,38 @@
+define('dom', function (require, exports) {
+  // Creates predicate function to match `id`.
+  function withId(id) {
+    function hasId(thing) {
+      return thing && thing.id === id;
+    }
+    return hasId;
+  }
+  exports.withId = withId;
+
+  // Create predicate function that matches id of target of event.
+  // Returns a function. Useful for filtering events based on target.
+  function withTargetId(id) {
+    function isTargetId(event) {
+      return event.target.id === id;
+    }
+    return isTargetId;
+  }
+  exports.withTargetId = withTargetId;
+
+  // Test for the presence of an HTML class on a DOM element.
+  function hasClass(element, elementClass) {
+    return RegExp(elementClass, 'g').test(element.className);
+  }
+  exports.hasClass = hasClass;
+
+  // Test if a given event has touches. Returns bolean.
+  function hasTouches(event) {
+    return event && event.touches && event.touches.length > 0;
+  }
+  exports.hasTouches = hasTouches;
+
+  return exports;
+});
+
 var a = require('accumulators');
 var on = a.on;
 var map = a.map;
@@ -6,6 +41,10 @@ var reject = a.reject;
 var classname = a.classname;
 var addClass = a.addClass;
 var removeClass = a.removeClass;
+// @TODO it may be that these writers are not that useful. Perhaps a simple
+// collection of DOM functions on spreads will be valuable instead.
+var setAddClass = a.setAddClass;
+var setRemoveClass = a.setRemoveClass;
 var $ = a.$;
 var merge = a.merge;
 var reductions = a.reductions;
@@ -15,6 +54,12 @@ var end = a.end;
 var write = a.write;
 var id = a.id;
 var slice = a.slice;
+
+var dom = require('dom');
+var hasClass = dom.hasClass;
+var hasTouches = dom.hasTouches;
+var withTargetId = dom.withTargetId;
+var withId = dom.withId;
 
 function print(spread) {
   accumulate(spread, function (_, item) {
@@ -331,15 +376,6 @@ function dissolveIn(element, trigger, ms, easing) {
   });
 }
 
-// Create predicate function that matches id of target of event.
-// Returns a function. Useful for filtering events based on target.
-function targetId(id) {
-  function isTargetId(event) {
-    return event.target.id === id;
-  }
-  return isTargetId;
-}
-
 // Reducible prototype for linked list node.
 var __node__ = {
   reduce: function reduceNodes(reducer, initial) {
@@ -458,10 +494,6 @@ function isInscreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
   );
 }
 
-function hasTouches(event) {
-  return event && event.touches && event.touches.length > 0;
-}
-
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
 function isTap(node) {
   // Calculate y distance moved using touchstart event and last touchmove.
@@ -513,13 +545,13 @@ function app(window) {
   // touchcycle that expands hotzone based on direction of swipe.
   var rbSwipes = reject(rbCycles, isTap);
 
-  var rbCancelTouchstarts = filter(touchstarts, targetId('rb-cancel'));
+  var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
   // Prevent default on all rbCancel touch starts.
   var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
 
   // Overlay's diff should include shrinking the RocketBar in cases where not
   // in Task Manager mode. Need to use sample().
-  var rbOverlayTouchstarts = filter(touchstarts, targetId('rb-overlay'));
+  var rbOverlayTouchstarts = filter(touchstarts, withTargetId('rb-overlay'));
 
   // Map to states
 
@@ -543,9 +575,11 @@ function app(window) {
   // @TODO loading URL, other cases that are independent of modes.
   var rbExpanding = null;
 
-  var setTouchstarts = filter(touchstarts, targetId('rb-icons'));
+  var setTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
 
-  var toSetPanel = becomes(setTouchstarts, { settings_panel_triggered: Date.now() });
+  var toSetPanel = map(setTouchstarts, function () {
+    return { settings_panel_triggered: Date.now() };
+  });
 
   var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
 
@@ -601,13 +635,13 @@ function app(window) {
   var activeSheet = $('.sh-head');
   addClass(activeSheet, whenModeTaskManager, 'sh-scaled');
 
-  var setPanelEl = document.getElementById('set-settings');
+  var settingsPanelEl = document.getElementById('set-settings');
+  write(settingsPanelEl, whenSetPanelTriggered, function update(el, state) {
+    if (hasClass(el, 'js-hide')) setRemoveClass(el, 'js-hide');
+    else setAddClass(el, 'js-hide');
+  });
 
   return appStates;
 }
 
 print(app(window));
-
-/*
-
-*/
