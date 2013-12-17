@@ -164,8 +164,17 @@ function get(thing, key) {
   return thing ? thing[key] : null;
 }
 
+// Creates an assertion function to test whether a given property at `key`
+// has been updated.
+function updated(key) {
+  function isUpdated(prev, curr) {
+    return get(prev, key) !== get(curr, key);
+  }
+  return isUpdated;
+}
+
 // Creates an assertion function that checks if a given
-// property at `path` is equal to `from` on `prev` and equal to `to` in
+// property at `key` is equal to `from` on `prev` and equal to `to` in
 // `curr`.
 //
 // This gives you state machine-like functionality when used with
@@ -181,7 +190,7 @@ function transitioned(key, from, to) {
 }
 
 // Creates an assertion function that checks if a given
-// property at `path` is equal to `to` on `curr` but not on `prev`
+// property at `key` is equal to `to` on `curr` but not on `prev`
 function changed(key, to) {
   function isChanged(prev, curr) {
     return (get(prev, key) !== to) && (get(curr, key) === to);
@@ -331,9 +340,26 @@ function targetId(id) {
   return isTargetId;
 }
 
-// Create a node in a linked list.
-function node(value, nextNode, into) {
-  return set_(set_(into || {}, 'value', value), 'next', nextNode);
+// Reducible prototype for linked list node.
+var __node__ = {
+  reduce: function reduceNodes(reducer, initial) {
+    var node = this;
+    var accumulated = initial;
+    do {
+      accumulated = reducer(accumulated, node);
+      node = next(node);
+    }
+    while(node !== null);
+    return accumulated;
+  }
+};
+
+// Create a linked list node.
+function node(value, nextNode) {
+  var n = Object.create(__node__);
+  n.value = value;
+  n.next = nextNode || null;
+  return n;
 }
 
 function next(node) {
@@ -344,18 +370,26 @@ function value(node) {
   return node && node.value ? node.value : null;
 }
 
-function find(node, predicate) {
-  // Capture variable to avoid mutating closure variable.
-  var n = node;
-  while(next(n) !== null && !predicate(value(n))) n = next(n);
-  return n;
+// Given 2 items, return second.
+function chooseCurr(prev, curr) {
+  return curr;
 }
 
-function head(node) {
-  // Capture variable to avoid mutating closure variable.
-  var n = node;
-  while(next(n) !== null) n = next(n);
-  return n;
+// Find head of reducible data structure.
+function head(reducible) {
+  return reducible.reduce(chooseCurr);
+}
+
+// Find first match for `predicate` in reducible data structure.
+// Returns null if no match is found.
+function find(reducible, predicate) {
+  return reducible.reduce(function reduceFind(found, node) {
+    // Match values, not nodes. This allows for general-purpose
+    // predicate functions.
+    if (found) return found;
+    if (predicate(value(node))) return node;
+    return null;
+  }, null);
 }
 
 // Turns touchstart, touchmove, touchend cycles into a linked list of events.
@@ -364,7 +398,8 @@ function head(node) {
 // eventually contain just 3 nodes: touchstart, last touchmove, touched.
 function drags(touchstarts, touchmoves, touchcancels, touchends) {
   // Merge all touch types into a single stream.
-  var cycles = merge([touchstarts, touchmoves, touchcancels, touchends]);
+  // @TODO getting duplicate touchends for some reason. Need to investigate.
+  var cycles = dropRepeats(merge([touchstarts, touchmoves, touchcancels, touchends]));
   return reductions(cycles, function reduceDrag(before, event) {
     // Previous event is called `next` in accord with linked list convention.
     // See <https://en.wikipedia.org/wiki/Linked_list>.
@@ -374,11 +409,12 @@ function drags(touchstarts, touchmoves, touchcancels, touchends) {
       return node(event);
 
     // Subsequent touchmoves.
-    if (event.type === 'touchmove' && next(before))
-      // Reuse touchmove node.
-      return node(event, next(before), before);
+    if (event.type === 'touchmove' && value(before).type === 'touchmove')
+      // Branch off of previous touchmove node's parent. Should be a touchstart.
+      // This allows previous touchmoves to be garbaged.
+      return node(event, next(before));
 
-    // First touchmove, end and cancle.
+    // First touchmove, end and cancel.
     return node(event, before);
   });
 }
@@ -422,8 +458,8 @@ function isInscreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
   );
 }
 
-function isTypeTouchmove(event) {
-  return event.type === 'touchmove';
+function hasTouches(event) {
+  return event && event.touches && event.touches.length > 0;
 }
 
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
@@ -432,11 +468,11 @@ function isTap(node) {
   // @TODO if we can accurately get a good read using just velocity, it
   // becomes unnecessary to keep `start` and maybe `end`.
   var touchStartFirstTouch = value(head(node)).touches[0];
-  var lastTouchMoveFirstTouch = value(find(node, isTypeTouchmove)).touches[0];
+  var mostRecentTouches = value(find(node, hasTouches)).touches[0];
 
   var distanceMoved = touchDistanceY(
     touchStartFirstTouch,
-    lastTouchMoveFirstTouch
+    mostRecentTouches
   );
 
   // Filter out touch cycle that moved more than 20px.
@@ -509,7 +545,9 @@ function app(window) {
 
   var setTouchstarts = filter(touchstarts, targetId('rb-icons'));
 
-  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager]);
+  var toSetPanel = becomes(setTouchstarts, { settings_panel_triggered: Date.now() });
+
+  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
 
   // Merge into global state object.
   var appStates = states(allDiffs, {
@@ -517,7 +555,8 @@ function app(window) {
     // independent (loading, homescreen etc).
     is_mode_task_manager: false,
     is_mode_rocketbar_focused: false,
-    is_rocketbar_showing_results: false
+    is_rocketbar_showing_results: false,
+    settings_panel_triggered: null
   });
 
   var toRbFocusedFromAnywhere = routes(appStates, changed('is_mode_rocketbar_focused', true));
@@ -542,6 +581,8 @@ function app(window) {
 
   var whenModeTaskManager = routes(appStates, transitioned('is_mode_task_manager', false, true));
 
+  var whenSetPanelTriggered = routes(appStates, updated('settings_panel_triggered'));
+
   var keyboardEl = document.getElementById('sys-fake-keyboard');
   addClass(keyboardEl, toRbFocusedFromAnywhere, 'js-activated');
   removeClass(keyboardEl, whenRbBlurred, 'js-activated');
@@ -559,6 +600,8 @@ function app(window) {
 
   var activeSheet = $('.sh-head');
   addClass(activeSheet, whenModeTaskManager, 'sh-scaled');
+
+  var setPanelEl = document.getElementById('set-settings');
 
   return appStates;
 }
