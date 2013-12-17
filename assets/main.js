@@ -334,49 +334,63 @@ function isTargetRbOverlay(event) {
   return event.target.id === 'rb-overlay';
 }
 
-// Reconfigures spreads of touch events into a spread of objects. Each object
-// will contain a `start` `penultimate` and `end` event. These events let you
-// extrapolate the distance moved between, say the first touch and the
-// last move.
-function touchcycles(touchstarts, touchmoves, touchcancels, touchends) {
-  return accumulatable(function accumulateCycles(next, initial) {
-    // Merge all touch types into a single stream.
-    var cycles = merge([touchstarts, touchmoves, touchcancels, touchends]);
-    // Create closure variables representing the 3 stages of the touch
-    // lifecycle.
-    var start = null;
-    var penultimate = null;
+// Create a node in a linked list.
+function node(value, nextNode, into) {
+  return set_(set_(into || {}, 'value', value), 'next', nextNode);
+}
 
-    accumulate(cycles, function (accumulated, event) {
-      var type = event.type;
+function next(node) {
+  return node && node.next ? node.next : null;
+}
 
-      // If event is touchstart, assign to start closure var.
-      if (type === 'touchstart') {
-        start = event;
-        penultimate = event;
-      }
-      // If event is move, assign to penultimate closure var. This gives us
-      // access to the last move in the sequence at the end, and allows us to
-      // extrapolate between touchstart and last move.
-      else if (type === 'touchmove') {
-        penultimate = event;
-      }
-      // If we have both a start and an end, this represents a complete touch
-      // cycle.
-      else if (type === 'touchend' || type === 'touchcancel') {
-        if (start && penultimate) accumulated = next(accumulated, {
-          start: start,
-          penultimate: penultimate,
-          end: event
-        });
+function value(node) {
+  return node && node.value ? node.value : null;
+}
 
-        // This is the end of the cycle. Reset all closure variables.
-        start = penultimate = null;
-      }
+function find(node, predicate) {
+  // Capture variable to avoid mutating closure variable.
+  var n = node;
+  while(next(n) !== null && !predicate(value(n))) n = next(n);
+  return n;
+}
 
-      return accumulated;
-    }, initial);
+function head(node) {
+  // Capture variable to avoid mutating closure variable.
+  var n = node;
+  while(next(n) !== null) n = next(n);
+  return n;
+}
+
+// Turns touchstart, touchmove, touchend cycles into a linked list of events.
+// Note that touchmove event fires every time, but linked list node is
+// mutated to reduce garbage. This means the resulting object will
+// eventually contain just 3 nodes: touchstart, last touchmove, touched.
+function drags(touchstarts, touchmoves, touchcancels, touchends) {
+  // Merge all touch types into a single stream.
+  var cycles = merge([touchstarts, touchmoves, touchcancels, touchends]);
+  return reductions(cycles, function reduceDrag(before, event) {
+    // Previous event is called `next` in accord with linked list convention.
+    // See <https://en.wikipedia.org/wiki/Linked_list>.
+
+    // Break off new chain every touchstart.
+    if (event.type === 'touchstart')
+      return node(event);
+
+    // Subsequent touchmoves.
+    if (event.type === 'touchmove' && next(before))
+      // Reuse touchmove node.
+      return node(event, next(before), before);
+
+    // First touchmove, end and cancle.
+    return node(event, before);
   });
+}
+
+function isFullCycle(node) {
+  return (
+    (value(node).type === 'touchend' || value(node).type === 'touchcancel') &&
+    value(head(node)).type === 'touchstart'
+  );
 }
 
 function touchDistanceY(touch0, touch1) {
@@ -391,7 +405,7 @@ function inRange(number, less, more) {
 
 // Given an x/y coord, determine if point is within the RocketBar's touch zone.
 // This is an irregularly shaped hot zone.
-// @TODO take velocity y direction into account when calculating hotzone.
+// @TODO take y direction into account when calculating hotzone.
 // @TODO need a second function to handle RocketBar in expanded mode.
 function isInRocketBarCollapsedHotzone(x, y, screenW) {
   return (
@@ -403,10 +417,31 @@ function isInRocketBarCollapsedHotzone(x, y, screenW) {
   );
 }
 
+// Given x/y coord, determine if point is within screen bottom touch zone.
+// @TODO take y direction into account when calculating hotzone.
+function isInscreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
+  return (
+    (inRange(x, 0, screenW) && inRange(y, screenH - 20, screenH))
+  );
+}
+
+function isTypeTouchmove(event) {
+  return event.type === 'touchmove';
+}
+
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
-function isTap(cycle) {
-  // Calculate y distance moved.
-  var distanceMoved = touchDistanceY(cycle.start.touches[0], cycle.penultimate.touches[0]);
+function isTap(node) {
+  // Calculate y distance moved using touchstart event and last touchmove.
+  // @TODO if we can accurately get a good read using just velocity, it
+  // becomes unnecessary to keep `start` and maybe `end`.
+  var touchStartFirstTouch = value(head(node)).touches[0];
+  var lastTouchMoveFirstTouch = value(find(node, isTypeTouchmove)).touches[0];
+
+  var distanceMoved = touchDistanceY(
+    touchStartFirstTouch,
+    lastTouchMoveFirstTouch
+  );
+
   // Filter out touch cycle that moved more than 20px.
   return distanceMoved < 10;
 }
@@ -423,9 +458,13 @@ function app(window) {
   var touchends = on(window, 'touchend');
   var touchcancels = on(window, 'touchcancel');
 
-  // Find touch events that start within RocketBar's hot zone.
-  var rbTouchstarts = filter(touchstarts, function isEventInRocketBarHotzone(event) {
-    var firstTouch = event.touches[0];
+  var windowDrags = drags(touchstarts, touchmoves, touchcancels, touchends);
+
+  var windowCycles = filter(windowDrags, isFullCycle);
+
+  // Touchcyles which begin in RocketBar hotzone.
+  var rbCycles = filter(windowCycles, function (node) {
+    var firstTouch = value(head(node)).touches[0];
     return isInRocketBarCollapsedHotzone(
       firstTouch.screenX,
       firstTouch.screenY,
@@ -433,16 +472,13 @@ function app(window) {
     );
   });
 
-  // Combine RocketBar touch starts with other touch cycle events.
-  var rbTouchcycles = touchcycles(rbTouchstarts, touchmoves, touchcancels, touchends);
-
   // Taps on RocketBar are any swipe that covers very little ground.
-  var rbTaps = filter(rbTouchcycles, isTap);
+  var rbTaps = filter(rbCycles, isTap);
 
   // Swipes on RocketBar are anything else.
   // @TODO if ergo of swipable area is feeling bad, can create separate
   // touchcycle that expands hotzone based on direction of swipe.
-  var rbSwipes = reject(rbTouchcycles, isTap);
+  var rbSwipes = reject(rbCycles, isTap);
 
   var rbCancelTouchstarts = filter(touchstarts, isTargetRbCancel);
   // Prevent default on all rbCancel touch starts.
@@ -515,6 +551,10 @@ function app(window) {
   dissolveIn(rbOverlayEl, toRbFocusedFromAnywhere, 200, 'ease-out');
   dissolveOut(rbOverlayEl, whenRbBlurred, 200, 'ease-out');
 
+  var rbCancelEl = document.getElementById('rb-cancel');
+  addClass(rbCancelEl, whenRbBlurred, 'js-hide');
+  removeClass(rbCancelEl, toRbFocusedFromAnywhere, 'js-hide');
+
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
   addClass(rbRocketbarEl, toRbExpanded, 'js-expanded');
 
@@ -527,7 +567,5 @@ function app(window) {
 print(app(window));
 
 /*
-var rbCancelEl = document.getElementById('rb-cancel');
-removeClass(rbCancelEl, rbFocuses, 'js-hide');
 
 */
