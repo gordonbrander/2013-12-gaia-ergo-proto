@@ -6,5 +6,6 @@
       "url": "https://github.com/gordonbrander/"
     },
     "launch_path": "/",
-    "fullscreen": "true"
+    "fullscreen": "true",
+    "orientation": ["portrait"]
 }
