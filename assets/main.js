@@ -1,3 +1,4 @@
+// Define a module with a suite of simple DOM helpers.
 define('dom', function (require, exports) {
   // Creates predicate function to match `id`.
   function withId(id) {
@@ -33,6 +34,68 @@ define('dom', function (require, exports) {
   return exports;
 });
 
+// Define module that offers a simple singly-linked list implementation.
+define('linked-list', function (require, exports) {
+  // Reducible prototype for linked list node.
+  var __node__ = {
+    reduce: function reduceNodes(reducer, initial) {
+      var node = this;
+      var accumulated = initial;
+      do {
+        accumulated = reducer(accumulated, node);
+        node = next(node);
+      }
+      while(node !== null);
+      return accumulated;
+    }
+  };
+
+  // Create a linked list node.
+  function node(value, nextNode) {
+    var n = Object.create(__node__);
+    n.value = value;
+    n.next = nextNode || null;
+    return n;
+  }
+  exports.node = node;
+
+  function next(node) {
+    return node && node.next ? node.next : null;
+  }
+  exports.next = next;
+
+  function value(node) {
+    return node && node.value ? node.value : null;
+  }
+  exports.value = value;
+
+  // Given 2 items, return second.
+  function chooseCurr(prev, curr) {
+    return curr;
+  }
+
+  // Find head of reducible data structure.
+  function head(reducible) {
+    return reducible.reduce(chooseCurr);
+  }
+  exports.head = head;
+
+  // Find first match for `predicate` in reducible data structure.
+  // Returns null if no match is found.
+  function find(reducible, predicate) {
+    return reducible.reduce(function reduceFind(found, node) {
+      // Match values, not nodes. This allows for general-purpose
+      // predicate functions.
+      if (found) return found;
+      if (predicate(value(node))) return node;
+      return null;
+    }, null);
+  }
+  exports.find = find;
+
+  return exports;
+});
+
 var a = require('accumulators');
 var on = a.on;
 var map = a.map;
@@ -60,6 +123,12 @@ var hasClass = dom.hasClass;
 var hasTouches = dom.hasTouches;
 var withTargetId = dom.withTargetId;
 var withId = dom.withId;
+
+var list = require('linked-list');
+var node = list.node;
+var find = list.find;
+var head = list.head;
+var value = list.value;
 
 function print(spread) {
   accumulate(spread, function (_, item) {
@@ -376,58 +445,6 @@ function dissolveIn(element, trigger, ms, easing) {
   });
 }
 
-// Reducible prototype for linked list node.
-var __node__ = {
-  reduce: function reduceNodes(reducer, initial) {
-    var node = this;
-    var accumulated = initial;
-    do {
-      accumulated = reducer(accumulated, node);
-      node = next(node);
-    }
-    while(node !== null);
-    return accumulated;
-  }
-};
-
-// Create a linked list node.
-function node(value, nextNode) {
-  var n = Object.create(__node__);
-  n.value = value;
-  n.next = nextNode || null;
-  return n;
-}
-
-function next(node) {
-  return node && node.next ? node.next : null;
-}
-
-function value(node) {
-  return node && node.value ? node.value : null;
-}
-
-// Given 2 items, return second.
-function chooseCurr(prev, curr) {
-  return curr;
-}
-
-// Find head of reducible data structure.
-function head(reducible) {
-  return reducible.reduce(chooseCurr);
-}
-
-// Find first match for `predicate` in reducible data structure.
-// Returns null if no match is found.
-function find(reducible, predicate) {
-  return reducible.reduce(function reduceFind(found, node) {
-    // Match values, not nodes. This allows for general-purpose
-    // predicate functions.
-    if (found) return found;
-    if (predicate(value(node))) return node;
-    return null;
-  }, null);
-}
-
 // Turns touchstart, touchmove, touchend cycles into a linked list of events.
 // Note that touchmove event fires every time, but linked list node is
 // mutated to reduce garbage. This means the resulting object will
@@ -448,7 +465,7 @@ function drags(touchstarts, touchmoves, touchcancels, touchends) {
     if (event.type === 'touchmove' && value(before).type === 'touchmove')
       // Branch off of previous touchmove node's parent. Should be a touchstart.
       // This allows previous touchmoves to be garbaged.
-      return node(event, next(before));
+      return node(event, list.next(before));
 
     // First touchmove, end and cancel.
     return node(event, before);
