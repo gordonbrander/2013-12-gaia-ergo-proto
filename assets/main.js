@@ -104,7 +104,7 @@ var reject = a.reject;
 var classname = a.classname;
 var addClass = a.addClass;
 var removeClass = a.removeClass;
-// @TODO it may be that these writers are not that useful. Perhaps a simple
+// @TODO it may be that these DOM writers are not that useful. Perhaps a simple
 // collection of DOM functions on spreads will be valuable instead.
 var setAddClass = a.setAddClass;
 var setRemoveClass = a.setRemoveClass;
