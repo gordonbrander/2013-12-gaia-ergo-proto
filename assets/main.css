@@ -185,7 +185,7 @@ video {
   position: absolute;
   top: 20px;
   width: 320px;
-  z-index: 300;
+  z-index: 200;
 }
 
 /* Sheets .sh-
@@ -196,8 +196,13 @@ video {
   overflow: auto;
   position: absolute;
   top: 20px;
+  transition: 200ms transform linear;
   width: 320px;
-  z-index: 200;
+  z-index: 300;
+}
+
+.sh-scaled {
+  transform: scale(.8);
 }
 
 /* not-notifications .not-

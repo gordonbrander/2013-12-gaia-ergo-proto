@@ -322,16 +322,13 @@ function dissolveIn(element, trigger, ms, easing) {
   });
 }
 
-function isTargetRocketBar(event) {
-  return event.target.id === 'rb-rocketbar';
-}
-
-function isTargetRbCancel(event) {
-  return event.target.id === 'rb-cancel';
-}
-
-function isTargetRbOverlay(event) {
-  return event.target.id === 'rb-overlay';
+// Create predicate function that matches id of target of event.
+// Returns a function. Useful for filtering events based on target.
+function targetId(id) {
+  function isTargetId(event) {
+    return event.target.id === id;
+  }
+  return isTargetId;
 }
 
 // Create a node in a linked list.
@@ -480,13 +477,13 @@ function app(window) {
   // touchcycle that expands hotzone based on direction of swipe.
   var rbSwipes = reject(rbCycles, isTap);
 
-  var rbCancelTouchstarts = filter(touchstarts, isTargetRbCancel);
+  var rbCancelTouchstarts = filter(touchstarts, targetId('rb-cancel'));
   // Prevent default on all rbCancel touch starts.
   var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
 
   // Overlay's diff should include shrinking the RocketBar in cases where not
   // in Task Manager mode. Need to use sample().
-  var rbOverlayTouchstarts = filter(touchstarts, isTargetRbOverlay);
+  var rbOverlayTouchstarts = filter(touchstarts, targetId('rb-overlay'));
 
   // Map to states
 
@@ -509,6 +506,8 @@ function app(window) {
 
   // @TODO loading URL, other cases that are independent of modes.
   var rbExpanding = null;
+
+  var setTouchstarts = filter(touchstarts, targetId('rb-icons'));
 
   var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager]);
 
@@ -558,8 +557,8 @@ function app(window) {
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
   addClass(rbRocketbarEl, toRbExpanded, 'js-expanded');
 
-  var taskManagerEl = document.getElementById('tm-task-manager');
-  dissolveIn(taskManagerEl, whenModeTaskManager, 200, 'ease-out');
+  var activeSheet = $('.sh-head');
+  addClass(activeSheet, whenModeTaskManager, 'sh-scaled');
 
   return appStates;
 }
