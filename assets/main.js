@@ -74,29 +74,41 @@ function dropRepeats(spread) {
   return asserts(spread, isDifferent);
 }
 
-// Extend `into` with the values of 2 other objects.
-function extend_(into, object0, object1) {
-  var key;
+// Enumerate over an object's own keys/values, accumulating a value.
+// `initial` defines the initial value for the accumulation. Reference is an
+// optional additional argument that make a common case -- comparing 2
+// objects -- easy and more efficient.
+function enumerate(object, next, initial, reference) {
+  var accumulated = initial;
+  for (var key in object)
+    // Test for own keys with `hasOwnProperty` instead of `Object.keys` to
+    // avoid garbage creation.
+    //
+    // @TODO need to test this "optimization".
+    if(object.hasOwnProperty(key)) accumulated = next(accumulated, key, object[key], object, reference);
+  return accumulated;
+}
 
-  // Shallow copy all properties of `object0` to `into`.
-  for (key in object0) into[key] = object0[key];
+// Set `value` on `object` at `key`. Returns `object`.
+function set_(object, key, value) {
+  object[key] = value;
+  return object;
+}
 
-  // Shallow copy all properties of `object1` to `into`.
-  for (key in object1) into[key] = object1[key];
+// Extend `into` with the own values of another object.
+function extend_(into, object) {
+  return enumerate(object, set_, into);
+}
 
-  // Return finished object.
-  return into;
+// Helper function for `contains`.
+function enumerateContains(isMissing, key, value, subset, set) {
+  return (isMissing ? true : set[key] !== subset[key]);
 }
 
 // Checks if `set` contains all the values present in `subset`.
 function contains(set, subset) {
   if (!isObject(set) || !isObject(subset)) return false;
-
-  // Check if values in subset are equal to values in object.
-  var isMissing = false;
-  for (var key in subset) isMissing = (isMissing ? true : set[key] !== subset[key]);
-
-  return !isMissing;
+  return !enumerate(subset, enumerateContains, false, set);
 }
 
 // Patch a series of diffs on to a state object.
@@ -123,7 +135,7 @@ function states(diffs, state) {
       // Goal: diffs that do not change current state are skipped.
       else if (!contains(state, diff)) {
         // Update state.
-        state = extend_({}, state, diff);
+        state = extend_(extend_({}, state), diff);
         // Accumulate `next` with new state.
         accumulated = next(accumulated, state);
       }
@@ -443,18 +455,16 @@ function app(window) {
   // Map to states
 
   var rbFocuses = becomes(rbTaps, {
-    is_rocketbar_focused: true,
-    is_rocketbar_expanded: true
+    is_mode_rocketbar_focused: true
   });
 
   // @TODO I may have to do some sampling against current state to determine
   // if RB stays expanded.
   var rbBlurs = becomes(merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]), {
-    is_rocketbar_focused: false
+    is_mode_rocketbar_focused: false
   });
 
   var toModeTaskManager = becomes(rbSwipes, {
-    is_rocketbar_expanded: true,
     is_mode_task_manager: true
   });
 
@@ -471,27 +481,29 @@ function app(window) {
     // @TODO rocketbar expands with task manager mode, but expansion is
     // independent (loading, homescreen etc).
     is_mode_task_manager: false,
-    is_rocketbar_expanded: false,
-    is_rocketbar_focused: false,
+    is_mode_rocketbar_focused: false,
     is_rocketbar_showing_results: false
   });
 
-  var toRbFocusedFromAnywhere = routes(appStates, transitioned('is_rocketbar_focused', false, true));
+  var toRbFocusedFromAnywhere = routes(appStates, changed('is_mode_rocketbar_focused', true));
 
   var toRbFocusedFromTaskManager = routes(appStates, all(
-    transitioned('is_rocketbar_focused', false, true),
+    changed('is_mode_rocketbar_focused', true),
     previously('is_mode_task_manager', true)
   ));
 
   // @TODO shorten and waterfall animations when going straight to focused.
   var toRbFocusedImmediately = routes(appStates, all(
-    changed('is_rocketbar_focused', true),
+    changed('is_mode_rocketbar_focused', true),
     previously('is_mode_task_manager', false)
   ));
 
-  var whenRbBlurred = routes(appStates, changed('is_rocketbar_focused', false));
+  var whenRbBlurred = routes(appStates, changed('is_mode_rocketbar_focused', false));
 
-  var whenRbExpanded = routes(appStates, changed('is_rocketbar_expanded', true));
+  var toRbExpanded = routes(appStates, any(
+    changed('is_mode_rocketbar_focused', true),
+    changed('is_mode_task_manager', true)
+  ));
 
   var whenModeTaskManager = routes(appStates, transitioned('is_mode_task_manager', false, true));
 
@@ -504,7 +516,7 @@ function app(window) {
   dissolveOut(rbOverlayEl, whenRbBlurred, 200, 'ease-out');
 
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
-  addClass(rbRocketbarEl, whenRbExpanded, 'js-expanded');
+  addClass(rbRocketbarEl, toRbExpanded, 'js-expanded');
 
   var taskManagerEl = document.getElementById('tm-task-manager');
   dissolveIn(taskManagerEl, whenModeTaskManager, 200, 'ease-out');
