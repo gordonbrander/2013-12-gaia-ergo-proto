@@ -5,7 +5,7 @@
       "name": "Mozilla",
       "url": "https://github.com/gordonbrander/"
     },
-    "launch_path": "/",
+    "launch_path": "/2013-12-gaia-ergo-proto/",
     "fullscreen": "true",
     "orientation": ["portrait"]
 }
