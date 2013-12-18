@@ -1,3 +1,5 @@
+**WORK IN PROGRESS**. Please pardon the dust.
+
 This prototype is designed to test the ergonomics of swipe gestures on-device
 for FirefoxOS.
 
