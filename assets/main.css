@@ -124,7 +124,6 @@ video {
   opacity: 0;
 }
 
-.rb-cancel,
 .rb-clear {
   display: none;
 }
@@ -133,9 +132,6 @@ video {
   line-height: 50px;
   position: absolute;
   right: 5px;
-}
-.rb-rocketbar.js-expanded .rb-cancel {
-  display: block;
 }
 
 .rb-overlay {
