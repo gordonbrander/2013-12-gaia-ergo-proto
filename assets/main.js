@@ -105,12 +105,20 @@ define('dom', function (require, exports) {
   exports.withTargetId = withTargetId;
 
   function withClass(className) {
-    function isClassOnTarget(target) {
-      return hasClass(target, className);
+    function isClassOnElement(element) {
+      return hasClass(element, className);
+    }
+    return isClassOnElement;
+  }
+  exports.withClass = withClass;
+
+  function withTargetClass(className) {
+    function isClassOnTarget(event) {
+      return hasClass(event.target, className);
     }
     return isClassOnTarget;
   }
-  exports.withClass = withClass;
+  exports.withTargetClass = withTargetClass;
 
   return exports;
 });
@@ -638,6 +646,7 @@ function becomes(spread, value) {
   return reductions(spread, id, value);
 }
 
+// @TODO remove these.
 function makeAddClass(className) {
   function addMemoizedClassTo(element) {
     return dom.addClass(element, className);
@@ -712,6 +721,12 @@ function app(window) {
     is_mode_task_manager: true
   });
 
+  var sheetTouchStarts = filter(touchstarts, withTargetClass('sh-head'));
+
+  var sheetDiffs = map(sheetTouchStarts, function (event) {
+    return { sheet_triggered: event };
+  });
+
   // @TODO loaded URL, scrolling homescreen, etc.
   var rbShrinking = null;
 
@@ -724,7 +739,7 @@ function app(window) {
     return { settings_panel_triggered: event };
   });
 
-  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
+  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel, sheetDiffs]);
 
   // Merge into global state object.
   var updates = patches(allDiffs, {
@@ -733,7 +748,8 @@ function app(window) {
     is_mode_task_manager: false,
     is_mode_rocketbar_focused: false,
     is_rocketbar_showing_results: false,
-    settings_panel_triggered: null
+    settings_panel_triggered: null,
+    sheet_triggered: null
   });
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
@@ -805,6 +821,17 @@ function app(window) {
     dom.toggleClass(target, 'js-hide');
   });
 
+  /* @TODO it turns out is_mode_task_manager is derived state. It's triggered
+  by swipe updates, but it is dependent on other state.
+
+  Maybe the best way to handle most updates is to pass along the event, giving
+  consumers the chance to test timestamps, prevent defaults and derive states
+  with membrane.
+  var fromModeTaskManagerViaSheet = membrane(updates, layer(
+    changed('sheet_triggered'),
+    currently('is_mode_task_manager', true)
+  ));
+  */
   return updates;
 }
 
