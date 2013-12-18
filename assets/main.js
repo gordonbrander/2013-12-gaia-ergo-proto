@@ -342,22 +342,44 @@ function states(diffs, state) {
   });
 }
 
-function routes(target, spread, judge) {
-  return asserts(spread, function assertRoute(prev, curr) {
-    // Wrap assertion, skipping first left value (which will be null). The
-    // first right value will be initial state. Skipping the null value will
-    // mean the first assertion hit will compare initial state to first
-    // updated state.
-    //
-    // We compare current state of target with current update and prev update.
-    return (prev !== null) ? judge(target, curr, prev) : false;
-  });
-}
+// Filter and transform a spread of values using a "brane" function.
+//
+//     function myBrane(curr, prev, target) { ... }
+//
+// `curr` is the current value of spread, `prev` is the previous value, and
+// `target` is an optional value supplied via the 3rd argument 2 membrane.
+//
+// Function is expected to return either a value or null. If null is returned
+// value will be ignored during accumulation (that value will be skipped).
+//
+// Any value returned becomes the new `curr` value.
+//
+// Typically used to create calculated states based on state properties and
+// current state of `target`.
+//
+// Returns a new spread of non-null values produced by `brane()`.
+function membrane(spread, brane, target) {
+  return accumulatable(function accumulateMembrane(next, initial) {
+    var accumulated = initial;
+    accumulate(spread, function nextAssert(prev, curr) {
+      // We're only interested in non-null comparisons.
+      // Skips first item in spread.
+      if (isNullish(prev)) return curr;
 
-// "Build" a target, writing states that pass using `update`.
-function build(target, spread, judge, update, enter, exit) {
-  var updates = routes(target, spread, judge);
-  write(target, updates, update, enter, exit);
+      // Handle end-of-source scenario.
+      if (curr === end) return next(accumulated, end);
+
+      // Create a product from current and previous value + any target
+      // with state.
+      var product = brane(curr, prev, target);
+      // If product is not nullish, we accumulate. Nullish returns are
+      // considered "not state changes".
+      if (!isNullish(product)) accumulated = next(accumulated, product);
+
+      // Curr becomes next prev.
+      return curr;
+    }, null);
+  });
 }
 
 // Get value at `key` on `thing`, or null if `thing` is not an object.
@@ -365,13 +387,21 @@ function get(thing, key) {
   return thing ? thing[key] : null;
 }
 
+function isUpdated(curr, prev, key) {
+  return get(prev, key) !== get(curr, key);
+}
+
 // Creates an assertion function to test whether a given property at `key`
 // has been updated.
 function updated(key) {
-  function isUpdated(target, curr, prev) {
-    return get(prev, key) !== get(curr, key);
+  function maybeUpdated(curr, prev) {
+    return isUpdated(curr, prev, key) ? curr : null;
   }
-  return isUpdated;
+  return maybeUpdated;
+}
+
+function hasTransitioned(curr, prev, key, from, to) {
+  return (get(prev, key) === from) && (get(curr, key) === to);
 }
 
 // Creates an assertion function that checks if a given
@@ -384,95 +414,74 @@ function updated(key) {
 //
 //     var x = asserts(appStates, transitioned('awesome', false, true));
 function transitioned(key, from, to) {
-  function hasTransitioned(target, curr, prev) {
-    return (get(prev, key) === from) && (get(curr, key) === to);
+  function maybeTransitioned(curr, prev) {
+    return hasTransitioned(curr, prev, key, from, to) ? curr : null;
   }
-  return hasTransitioned;
+  return maybeTransitioned;
+}
+
+function isChanged(curr, prev, key, to) {
+  return (get(prev, key) !== to) && (get(curr, key) === to);
 }
 
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `to` on `curr` but not on `prev`
 function changed(key, to) {
-  function isChanged(target, curr, prev) {
-    return (get(prev, key) !== to) && (get(curr, key) === to);
+  function maybeChanged(curr, prev) {
+    return isChanged(curr, prev, key, to) ? curr : null;
   }
-  return isChanged;
+  return maybeChanged;
+}
+
+function isCurrently(curr, prev, key, value) {
+  return get(curr, key) === value;
 }
 
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `value` in `curr`.
 function currently(key, value) {
-  function isCurrently(target, curr, prev) {
-    return get(curr, key) === value;
+  function maybeCurrently(curr, prev) {
+    return isCurrently(curr, prev, key, value) ? curr : null;
   }
-  return isCurrently;
+  return maybeCurrently;
+}
+
+function wasPreviously(curr, prev, key, value) {
+  return get(prev, key) === value;
 }
 
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `value` in `prev`.
 function previously(key, value) {
-  function wasPreviously(target, curr, prev) {
-    return get(prev, key) === value;
+  function maybePreviously(curr, prev) {
+    return wasPreviously(curr, prev, key, value) ? curr : null;
   }
-  return wasPreviously;
+  return maybePreviously;
 }
 
-// Combine `n` assertion functions into a single assertion function
-// that tests all given assertions using an `and` relationship.
-//
-// Pass each assertion function as an argument to `all`. Returns an
-// assertion function.
-//
-// Protip: returned assertion function is composable with `all` or `any`
-// allowing for complex nested boolean logic.
-function all(/* judge, ... */) {
-  var judges = slice(arguments);
-
-  function judgeAll(target, curr, prev) {
-    var isPassing = true;
-
-    // Run every assertion function in sequence. If any are not passed,
-    // isPassing becomes false. Every assertion must return true.
-    for (var i = 0; i < judges.length; i += 1) {
-      isPassing = isPassing ? judges[i](target, curr, prev) : false;
-    }
-
-    return isPassing;
+function maybe(value) {
+  function maybeValue(curr) {
+    return !isNullish(curr) ? value : null;
   }
-
-  return judgeAll;
+  return maybeValue;
 }
 
-// Combine `n` assertion functions into a single assertion function
-// that tests all given assertions using an `or` relationship.
-//
-// Pass each assertion function as an argument to `any`. Returns an
-// assertion function.
-//
-// Protip: returned assertion function is composable with `all` or `any`
-// allowing for complex nested boolean logic.
-function any(/* judge, ... */) {
-  var judges = slice(arguments);
+// Combine `n` membrane functions into a single composed membrane function
+// that filters `curr` through membranes until either one returns null or
+// all return a value.
+function layer(/* brane, ... */) {
+  var branes = slice(arguments);
 
-  function judgeAny(target, curr, prev) {
-    var isPassing = false;
+  function maybeLayer(curr, prev, target) {
+    // Pass curr through every brane in sequence. If any brane returns null,
+    // the subsequent branes will be skipped and null will be returned.
+    for (var i = 0; i < branes.length; i += 1)
+      curr = !isNullish(curr) ? branes[i](curr, prev, target) : null;
 
-    // Run every assertion function in sequence. If any are not passed,
-    // isPassing becomes false. Every assertion must return true.
-    for (var i = 0; i < judges.length; i += 1)
-      isPassing = !isPassing ? judges[i](target, curr, prev) : true;
-
-    return isPassing;
+    return curr;
   }
 
-  return judgeAny;
-}
-
-function not(judge) {
-  function notJudge(target, curr, prev) {
-    return !judge(target, curr, prev);
-  }
-  return notJudge;
+  return maybeLayer;
 }
 
 function timeout(ms) {
@@ -726,68 +735,56 @@ function app(window) {
     settings_panel_triggered: null
   });
 
-  var toRbFocusedFromAnywhere = routes(null, appStates, changed('is_mode_rocketbar_focused', true));
-
-  var toRbFocusedFromTaskManager = routes(null, appStates, all(
-    changed('is_mode_rocketbar_focused', true),
-    previously('is_mode_task_manager', true)
-  ));
-
-  // @TODO shorten and waterfall animations when going straight to focused.
-  var toRbFocusedImmediately = routes(null, appStates, all(
-    changed('is_mode_rocketbar_focused', true),
-    previously('is_mode_task_manager', false)
-  ));
-
-  var whenRbBlurred = routes(null, appStates, changed('is_mode_rocketbar_focused', false));
-
-  var toRbExpanded = routes(null, appStates, any(
-    changed('is_mode_rocketbar_focused', true),
-    changed('is_mode_task_manager', true)
-  ));
-
-  var whenModeTaskManager = routes(null, appStates, transitioned('is_mode_task_manager', false, true));
-
   var keyboardEl = document.getElementById('sys-fake-keyboard');
 
-  // Build in.
-  build(
-    keyboardEl,
-    appStates,
+  // Build in
+  var keyboardActivations = membrane(appStates, layer(
     changed('is_mode_rocketbar_focused', true),
-    makeAddClass('js-activated')
-  );
+    maybe('js-activated')
+  ));
+  write(keyboardEl, keyboardActivations, dom.addClass);
 
-  // Build out.
-  build(
-    keyboardEl,
-    appStates,
+  // Build out
+  var keyboardDeactivations = membrane(appStates, layer(
     changed('is_mode_rocketbar_focused', false),
-    makeRemoveClass('js-activated')
-  );
+    maybe('js-activated')
+  ));
+  write(keyboardEl, keyboardDeactivations, dom.removeClass);
+
+
+  var toRbFocusedFromAnywhere = membrane(appStates, changed('is_mode_rocketbar_focused', true));
+  var toRbBlurred = membrane(appStates, changed('is_mode_rocketbar_focused', false));
 
   var rbOverlayEl = document.getElementById('rb-overlay');
+
   dissolveIn(rbOverlayEl, toRbFocusedFromAnywhere, 200, 'ease-out');
-  dissolveOut(rbOverlayEl, whenRbBlurred, 200, 'ease-out');
+  dissolveOut(rbOverlayEl, toRbBlurred, 200, 'ease-out');
 
   var rbCancelEl = document.getElementById('rb-cancel');
-  addClass(rbCancelEl, whenRbBlurred, 'js-hide');
+  addClass(rbCancelEl, toRbBlurred, 'js-hide');
   removeClass(rbCancelEl, toRbFocusedFromAnywhere, 'js-hide');
+
+  var toRbExpanded = membrane(appStates, function (curr, prev) {
+    return (
+      isChanged(curr, prev, 'is_mode_rocketbar_focused', true) ||
+      isChanged(curr, prev, 'is_mode_task_manager', true)
+    ) ? curr : null;
+  });
 
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
   addClass(rbRocketbarEl, toRbExpanded, 'js-expanded');
 
   var activeSheet = $('.sh-head');
-  addClass(activeSheet, whenModeTaskManager, 'sh-scaled');
+  var toModeTaskManagerFromAnywhere = membrane(appStates, changed('is_mode_task_manager', true));
+  addClass(activeSheet, toModeTaskManagerFromAnywhere, 'sh-scaled');
 
+  // Build in/out
   var settingsPanelEl = document.getElementById('set-settings');
-
-  build(
-    settingsPanelEl,
-    appStates,
+  var settingsToggles = membrane(appStates, layer(
     updated('settings_panel_triggered'),
-    makeToggleClass('js-hide')
-  );
+    maybe('js-hide')
+  ));
+  write(settingsPanelEl, settingsToggles, dom.toggleClass);
 
   return appStates;
 }
