@@ -307,14 +307,12 @@ function contains(set, subset) {
   return !enumerate(subset, enumerateContains, false, set);
 }
 
-// Patch a series of diffs on to a state object.
+// Patch a series of diffs on to an object.
 // Returns a spread with each state of the object over time.
 //
-// Note: it's a bad idea to mutate this state object from assertion functions
-// because other consumers will also be using it, introducing state-related
-// bugs. Instead, send your changes to state as part of `diffs` spread, so
-// all other consumers can be notified of change.
-function states(diffs, state) {
+// Note: it's a bad idea to mutate this state object
+// because other consumers will also be using it.
+function patches(diffs, state) {
   return accumulatable(function accumulateStates(next, initial) {
     // State must always be an object.
     state = state || {};
@@ -412,7 +410,7 @@ function hasTransitioned(curr, prev, key, from, to) {
 // `asserts()`. For example, to get a spread of all states where your
 // became `awesome`:
 //
-//     var x = asserts(appStates, transitioned('awesome', false, true));
+//     var x = asserts(updates, transitioned('awesome', false, true));
 function transitioned(key, from, to) {
   function maybeTransitioned(curr, prev) {
     return hasTransitioned(curr, prev, key, from, to) ? curr : null;
@@ -726,7 +724,7 @@ function app(window) {
   var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
 
   // Merge into global state object.
-  var appStates = states(allDiffs, {
+  var updates = patches(allDiffs, {
     // @TODO rocketbar expands with task manager mode, but expansion is
     // independent (loading, homescreen etc).
     is_mode_task_manager: false,
@@ -738,22 +736,22 @@ function app(window) {
   var keyboardEl = document.getElementById('sys-fake-keyboard');
 
   // Build in
-  var keyboardActivations = membrane(appStates, layer(
+  var keyboardActivations = membrane(updates, layer(
     changed('is_mode_rocketbar_focused', true),
     maybe('js-activated')
   ));
   write(keyboardEl, keyboardActivations, dom.addClass);
 
   // Build out
-  var keyboardDeactivations = membrane(appStates, layer(
+  var keyboardDeactivations = membrane(updates, layer(
     changed('is_mode_rocketbar_focused', false),
     maybe('js-activated')
   ));
   write(keyboardEl, keyboardDeactivations, dom.removeClass);
 
 
-  var toRbFocusedFromAnywhere = membrane(appStates, changed('is_mode_rocketbar_focused', true));
-  var toRbBlurred = membrane(appStates, changed('is_mode_rocketbar_focused', false));
+  var toRbFocusedFromAnywhere = membrane(updates, changed('is_mode_rocketbar_focused', true));
+  var toRbBlurred = membrane(updates, changed('is_mode_rocketbar_focused', false));
 
   var rbOverlayEl = document.getElementById('rb-overlay');
 
@@ -764,7 +762,7 @@ function app(window) {
   addClass(rbCancelEl, toRbBlurred, 'js-hide');
   removeClass(rbCancelEl, toRbFocusedFromAnywhere, 'js-hide');
 
-  var toRbExpanded = membrane(appStates, function (curr, prev) {
+  var toRbExpanded = membrane(updates, function (curr, prev) {
     return (
       isChanged(curr, prev, 'is_mode_rocketbar_focused', true) ||
       isChanged(curr, prev, 'is_mode_task_manager', true)
@@ -775,18 +773,18 @@ function app(window) {
   addClass(rbRocketbarEl, toRbExpanded, 'js-expanded');
 
   var activeSheet = $('.sh-head');
-  var toModeTaskManagerFromAnywhere = membrane(appStates, changed('is_mode_task_manager', true));
+  var toModeTaskManagerFromAnywhere = membrane(updates, changed('is_mode_task_manager', true));
   addClass(activeSheet, toModeTaskManagerFromAnywhere, 'sh-scaled');
 
   // Build in/out
   var settingsPanelEl = document.getElementById('set-settings');
-  var settingsToggles = membrane(appStates, layer(
+  var settingsToggles = membrane(updates, layer(
     updated('settings_panel_triggered'),
     maybe('js-hide')
   ));
   write(settingsPanelEl, settingsToggles, dom.toggleClass);
 
-  return appStates;
+  return updates;
 }
 
 print(app(window));
