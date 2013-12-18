@@ -1,5 +1,90 @@
 // Define a module with a suite of simple DOM helpers.
 define('dom', function (require, exports) {
+  var a = require('accumulators');
+  var handleEnd = a.handleEnd;
+
+  // Internal higher-order function that expidites creating "setters" that
+  // can operate on multiple items at once. Pass a `setOn` function that looks
+  // like:
+  //
+  //     function setThingOn(value, target) { ... return value; }
+  //
+  // Where `target` is the thing being mutated. Make sure to return `value`!
+  function multisetter(setOn) {
+    var nextSetOn = handleEnd(setOn);
+
+    function multiset(things, value) {
+      accumulate(things, nextSetOn, value);
+      return things;
+    }
+
+    return multiset;
+  }
+
+  // Test for the presence of an HTML class on a DOM element.
+  function hasClass(element, elementClass) {
+    return RegExp(elementClass, 'g').test(element.className);
+  }
+  exports.hasClass = hasClass;
+
+  // Set `innerHtml` on multiple elements.
+  var setHtml = multisetter(function setHtmlOn(html, element) {
+    element.innerHTML = html;
+    return html;
+  });
+  exports.setHtml = setHtml;
+
+  var setText = multisetter(function setTextOn(text, element) {
+    element.textContent = text;
+    return text;
+  });
+  exports.setText = setText;
+
+  // Set/remove a single attribute on a single element.
+  function setSingleAttr(element, key, value) {
+    // If value is nullish, remove the attribute.
+    if (value == null) element.removeAttribute(key);
+    // Otherwise, set the attribute.
+    else element.setAttribute(key, value);
+    return element;
+  }
+
+  var setAttr = multisetter(function setAttrOn(attr, element) {
+    for (var key in attr) setSingleAttr(element, key, attr[key]);
+    return attr;
+  });
+  exports.setAttr = setAttr;
+
+  var addClass = multisetter(function addClassTo(elementClass, element) {
+    var prevElementClass = element.className;
+    if (prevElementClass.indexOf(elementClass) === -1)
+      element.className = prevElementClass + ' ' + elementClass;
+    return elementClass;
+  });
+  exports.addClass = setAddClass;
+
+  var removeClass = multisetter(function removeClassFrom(elementClass, element) {
+    var pattern = RegExp(elementClass, 'g');
+    element.className = element.className.replace(pattern, '');
+    return elementClass;
+  });
+  exports.removeClass = removeClass;
+
+  var toggleClass = multisetter(function toggleClassOn(elementClass, element) {
+    // @TODO make hasClass support multiple elements, or just test first element
+    // or test all elements, or deal with elements one-by-one.
+    return hasClass(element, elementClass) ?
+      removeClass(element, elementClass) :
+      addClass(element, elementClass);
+  });
+  exports.toggleClass = toggleClass;
+
+  // Test if a given event has touches. Returns bolean.
+  function hasTouches(event) {
+    return event && event.touches && event.touches.length > 0;
+  }
+  exports.hasTouches = hasTouches;
+
   // Creates predicate function to match `id`.
   function withId(id) {
     function hasId(thing) {
@@ -19,17 +104,13 @@ define('dom', function (require, exports) {
   }
   exports.withTargetId = withTargetId;
 
-  // Test for the presence of an HTML class on a DOM element.
-  function hasClass(element, elementClass) {
-    return RegExp(elementClass, 'g').test(element.className);
+  function withClass(className) {
+    function isClassOnTarget(target) {
+      return hasClass(target, className);
+    }
+    return isClassOnTarget;
   }
-  exports.hasClass = hasClass;
-
-  // Test if a given event has touches. Returns bolean.
-  function hasTouches(event) {
-    return event && event.touches && event.touches.length > 0;
-  }
-  exports.hasTouches = hasTouches;
+  exports.withClass = withClass;
 
   return exports;
 });
@@ -123,6 +204,7 @@ var hasClass = dom.hasClass;
 var hasTouches = dom.hasTouches;
 var withTargetId = dom.withTargetId;
 var withId = dom.withId;
+var withClass = dom.withClass;
 
 var list = require('linked-list');
 var node = list.node;
@@ -260,17 +342,22 @@ function states(diffs, state) {
   });
 }
 
-// Route states using assertion function.
-// Returns a new spread that contains the values which
-// pass `assert(left, right)`.
-function routes(states, assert) {
-  return asserts(states, function assertRoute(left, right) {
+function routes(target, spread, judge) {
+  return asserts(spread, function assertRoute(prev, curr) {
     // Wrap assertion, skipping first left value (which will be null). The
     // first right value will be initial state. Skipping the null value will
     // mean the first assertion hit will compare initial state to first
-    // patched state.
-    return (left !== null) ? assert(left, right) : false;
+    // updated state.
+    //
+    // We compare current state of target with current update and prev update.
+    return (prev !== null) ? judge(target, curr, prev) : false;
   });
+}
+
+// "Build" a target, writing states that pass using `update`.
+function build(target, spread, judge, update, enter, exit) {
+  var updates = routes(target, spread, judge);
+  write(target, updates, update, enter, exit);
 }
 
 // Get value at `key` on `thing`, or null if `thing` is not an object.
@@ -281,7 +368,7 @@ function get(thing, key) {
 // Creates an assertion function to test whether a given property at `key`
 // has been updated.
 function updated(key) {
-  function isUpdated(prev, curr) {
+  function isUpdated(target, curr, prev) {
     return get(prev, key) !== get(curr, key);
   }
   return isUpdated;
@@ -297,7 +384,7 @@ function updated(key) {
 //
 //     var x = asserts(appStates, transitioned('awesome', false, true));
 function transitioned(key, from, to) {
-  function hasTransitioned(prev, curr) {
+  function hasTransitioned(target, curr, prev) {
     return (get(prev, key) === from) && (get(curr, key) === to);
   }
   return hasTransitioned;
@@ -306,7 +393,7 @@ function transitioned(key, from, to) {
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `to` on `curr` but not on `prev`
 function changed(key, to) {
-  function isChanged(prev, curr) {
+  function isChanged(target, curr, prev) {
     return (get(prev, key) !== to) && (get(curr, key) === to);
   }
   return isChanged;
@@ -315,7 +402,7 @@ function changed(key, to) {
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `value` in `curr`.
 function currently(key, value) {
-  function isCurrently(prev, curr) {
+  function isCurrently(target, curr, prev) {
     return get(curr, key) === value;
   }
   return isCurrently;
@@ -324,7 +411,7 @@ function currently(key, value) {
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `value` in `prev`.
 function previously(key, value) {
-  function wasPreviously(prev, curr) {
+  function wasPreviously(target, curr, prev) {
     return get(prev, key) === value;
   }
   return wasPreviously;
@@ -338,21 +425,22 @@ function previously(key, value) {
 //
 // Protip: returned assertion function is composable with `all` or `any`
 // allowing for complex nested boolean logic.
-function all(/* assert, ... */) {
-  var assertions = slice(arguments);
+function all(/* judge, ... */) {
+  var judges = slice(arguments);
 
-  function assertAll(prev, curr) {
-    var isPassing = false;
+  function judgeAll(target, curr, prev) {
+    var isPassing = true;
 
     // Run every assertion function in sequence. If any are not passed,
     // isPassing becomes false. Every assertion must return true.
-    for (var i = 0; i < assertions.length; i += 1)
-      isPassing = isPassing ? assertions[i](prev, curr) : false;
+    for (var i = 0; i < judges.length; i += 1) {
+      isPassing = isPassing ? judges[i](target, curr, prev) : false;
+    }
 
     return isPassing;
   }
 
-  return assertAll;
+  return judgeAll;
 }
 
 // Combine `n` assertion functions into a single assertion function
@@ -363,21 +451,28 @@ function all(/* assert, ... */) {
 //
 // Protip: returned assertion function is composable with `all` or `any`
 // allowing for complex nested boolean logic.
-function any(/* assert, ... */) {
-  var assertions = slice(arguments);
+function any(/* judge, ... */) {
+  var judges = slice(arguments);
 
-  function assertAny(prev, curr) {
+  function judgeAny(target, curr, prev) {
     var isPassing = false;
 
     // Run every assertion function in sequence. If any are not passed,
     // isPassing becomes false. Every assertion must return true.
-    for (var i = 0; i < assertions.length; i += 1)
-      isPassing = !isPassing ? assertions[i](prev, curr) : true;
+    for (var i = 0; i < judges.length; i += 1)
+      isPassing = !isPassing ? judges[i](target, curr, prev) : true;
 
     return isPassing;
   }
 
-  return assertAny;
+  return judgeAny;
+}
+
+function not(judge) {
+  function notJudge(target, curr, prev) {
+    return !judge(target, curr, prev);
+  }
+  return notJudge;
 }
 
 function timeout(ms) {
@@ -533,6 +628,27 @@ function becomes(spread, value) {
   return reductions(spread, id, value);
 }
 
+function makeAddClass(className) {
+  function addMemoizedClassTo(element) {
+    return dom.addClass(element, className);
+  }
+  return addMemoizedClassTo;
+}
+
+function makeRemoveClass(className) {
+  function removeMemoizedClassFrom(element) {
+    return dom.removeClass(element, className);
+  }
+  return removeMemoizedClassFrom;
+}
+
+function makeToggleClass(className) {
+  function toggleMemoizedClassOn(element) {
+    return dom.toggleClass(element, className);
+  }
+  return toggleMemoizedClassOn;
+}
+
 function app(window) {
   // Listen for touch events.
   var touchstarts = on(window, 'touchstart');
@@ -610,33 +726,45 @@ function app(window) {
     settings_panel_triggered: null
   });
 
-  var toRbFocusedFromAnywhere = routes(appStates, changed('is_mode_rocketbar_focused', true));
+  var toRbFocusedFromAnywhere = routes(null, appStates, changed('is_mode_rocketbar_focused', true));
 
-  var toRbFocusedFromTaskManager = routes(appStates, all(
+  var toRbFocusedFromTaskManager = routes(null, appStates, all(
     changed('is_mode_rocketbar_focused', true),
     previously('is_mode_task_manager', true)
   ));
 
   // @TODO shorten and waterfall animations when going straight to focused.
-  var toRbFocusedImmediately = routes(appStates, all(
+  var toRbFocusedImmediately = routes(null, appStates, all(
     changed('is_mode_rocketbar_focused', true),
     previously('is_mode_task_manager', false)
   ));
 
-  var whenRbBlurred = routes(appStates, changed('is_mode_rocketbar_focused', false));
+  var whenRbBlurred = routes(null, appStates, changed('is_mode_rocketbar_focused', false));
 
-  var toRbExpanded = routes(appStates, any(
+  var toRbExpanded = routes(null, appStates, any(
     changed('is_mode_rocketbar_focused', true),
     changed('is_mode_task_manager', true)
   ));
 
-  var whenModeTaskManager = routes(appStates, transitioned('is_mode_task_manager', false, true));
-
-  var whenSetPanelTriggered = routes(appStates, updated('settings_panel_triggered'));
+  var whenModeTaskManager = routes(null, appStates, transitioned('is_mode_task_manager', false, true));
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
-  addClass(keyboardEl, toRbFocusedFromAnywhere, 'js-activated');
-  removeClass(keyboardEl, whenRbBlurred, 'js-activated');
+
+  // Build in.
+  build(
+    keyboardEl,
+    appStates,
+    changed('is_mode_rocketbar_focused', true),
+    makeAddClass('js-activated')
+  );
+
+  // Build out.
+  build(
+    keyboardEl,
+    appStates,
+    changed('is_mode_rocketbar_focused', false),
+    makeRemoveClass('js-activated')
+  );
 
   var rbOverlayEl = document.getElementById('rb-overlay');
   dissolveIn(rbOverlayEl, toRbFocusedFromAnywhere, 200, 'ease-out');
@@ -653,10 +781,13 @@ function app(window) {
   addClass(activeSheet, whenModeTaskManager, 'sh-scaled');
 
   var settingsPanelEl = document.getElementById('set-settings');
-  write(settingsPanelEl, whenSetPanelTriggered, function update(el, state) {
-    if (hasClass(el, 'js-hide')) setRemoveClass(el, 'js-hide');
-    else setAddClass(el, 'js-hide');
-  });
+
+  build(
+    settingsPanelEl,
+    appStates,
+    updated('settings_panel_triggered'),
+    makeToggleClass('js-hide')
+  );
 
   return appStates;
 }
