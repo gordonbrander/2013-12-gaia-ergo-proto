@@ -188,6 +188,7 @@ define('linked-list', function (require, exports) {
 var a = require('accumulators');
 var on = a.on;
 var map = a.map;
+var hub = a.hub;
 var filter = a.filter;
 var reject = a.reject;
 var classname = a.classname;
@@ -321,7 +322,7 @@ function contains(set, subset) {
 // Note: it's a bad idea to mutate this state object
 // because other consumers will also be using it.
 function patches(diffs, state) {
-  return accumulatable(function accumulateStates(next, initial) {
+  return hub(accumulatable(function accumulateStates(next, initial) {
     // State must always be an object.
     state = state || {};
 
@@ -345,7 +346,7 @@ function patches(diffs, state) {
     }
 
     accumulate(diffs, nextDiff, state);
-  });
+  }));
 }
 
 // Filter and transform a spread of values using a "brane" function.
@@ -368,7 +369,7 @@ function patches(diffs, state) {
 // @TODO not a verb. This function derives new states.
 // Candidates: synthesize, derive, secrete (lol), sift. Maybe ok, tho.
 function membrane(spread, brane, target) {
-  return accumulatable(function accumulateMembrane(next, initial) {
+  return hub(accumulatable(function accumulateMembrane(next, initial) {
     var accumulated = initial;
     accumulate(spread, function nextAssert(prev, curr) {
       // We're only interested in non-null comparisons.
@@ -388,7 +389,7 @@ function membrane(spread, brane, target) {
       // Curr becomes next prev.
       return curr;
     }, null);
-  });
+  }));
 }
 
 // Get value at `key` on `thing`, or null if `thing` is not an object.
@@ -558,6 +559,62 @@ function dissolveIn(element, trigger, ms, easing) {
   });
 }
 
+// Check if an event is an ending event (cancel or end).
+function isEventStop(event) {
+  return event && (event.type === 'touchend' || event.type === 'touchcancel');
+}
+
+function isEventMove(event) {
+  return event && event.type === 'touchmove';
+}
+
+function isEventStart(event) {
+  return event && event.type === 'touchstart';
+}
+
+// Begins with touchmove event.
+function isHeadEventStart(node) {
+  return isEventStart(value(head(node)));
+}
+
+function isTailEventStop(node) {
+  return isEventStop(value(node));
+}
+
+// Build touch event linked lists that look like:
+//
+//     touchstart.null
+//     touchmove.touchstart.null
+//     touchend.touchmove.touchstart.null
+//
+// Where touchmove is in all cases the most recent touchmove at creation of the
+// list node. Used by `drags()` (see below).
+function reduceDrag(before, event) {
+  // Previous event is called `next` in accord with linked list convention.
+  // See <https://en.wikipedia.org/wiki/Linked_list>.
+
+  // Break off new chain if touchstart, or if previous event was an
+  // ending event.
+  if (isEventStart(event))
+    return node(event);
+
+  // If last event was a touchend or if `before` was null, return null.
+  // We do this in cases where events happen without a previous corresponding
+  // touchstart. This can happen on first turn or after. Instead of
+  // creating chains for these orphan moves/ends, we return null
+  // (filtered out in `drags`). This step is repeated until a new start begins.
+  if(isNullish(before) || isTailEventStop(before)) return null;
+
+  // Subsequent touchmoves.
+  if (isEventMove(event) && isEventMove(value(before)))
+    // Branch off of previous touchmove node's parent. Should be a touchstart.
+    // This allows previous touchmoves to be garbaged.
+    return node(event, list.next(before));
+
+  // First touchmove, end and cancel, chain with previous node.
+  return node(event, before);
+}
+
 // Turns touchstart, touchmove, touchend cycles into a linked list of events.
 // Note that touchmove event fires every time, but linked list node is
 // mutated to reduce garbage. This means the resulting object will
@@ -565,31 +622,10 @@ function dissolveIn(element, trigger, ms, easing) {
 function drags(touchstarts, touchmoves, touchcancels, touchends) {
   // Merge all touch types into a single stream.
   // @TODO getting duplicate touchends for some reason. Need to investigate.
-  var cycles = dropRepeats(merge([touchstarts, touchmoves, touchcancels, touchends]));
-  return reductions(cycles, function reduceDrag(before, event) {
-    // Previous event is called `next` in accord with linked list convention.
-    // See <https://en.wikipedia.org/wiki/Linked_list>.
+  var events = dropRepeats(merge([touchstarts, touchmoves, touchcancels, touchends]));
 
-    // Break off new chain every touchstart.
-    if (event.type === 'touchstart')
-      return node(event);
-
-    // Subsequent touchmoves.
-    if (event.type === 'touchmove' && value(before).type === 'touchmove')
-      // Branch off of previous touchmove node's parent. Should be a touchstart.
-      // This allows previous touchmoves to be garbaged.
-      return node(event, list.next(before));
-
-    // First touchmove, end and cancel.
-    return node(event, before);
-  });
-}
-
-function isFullCycle(node) {
-  return (
-    (value(node).type === 'touchend' || value(node).type === 'touchcancel') &&
-    value(head(node)).type === 'touchstart'
-  );
+  // Build all chains.
+  return reject(reductions(events, reduceDrag, null), isNullish);
 }
 
 function touchDistanceY(touch0, touch1) {
@@ -616,6 +652,15 @@ function isInRocketBarCollapsedHotzone(x, y, screenW) {
   );
 }
 
+function isEventRelatedToRocketBar(event) {
+  var firstTouch = event.touches[0];
+  return isInRocketBarCollapsedHotzone(
+    firstTouch.screenX,
+    firstTouch.screenY,
+    screen.width
+  );
+}
+
 // Given x/y coord, determine if point is within screen bottom touch zone.
 // @TODO take y direction into account when calculating hotzone.
 function isInscreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
@@ -639,6 +684,15 @@ function isTap(node) {
 
   // Filter out touch cycle that moved more than 20px.
   return distanceMoved < 10;
+}
+
+function isDragDown(node) {
+  var touchmove = value(node);
+  if (touchmove.type !== 'touchmove') return false;
+  var touchstart = value(head(node));
+  var distance = touchDistanceY(touchstart.touches[0], touchmove.touches[0]);
+
+  return true;
 }
 
 // Convert every item in a spread into given value.
@@ -675,27 +729,19 @@ function app(window) {
   var touchends = on(window, 'touchend');
   var touchcancels = on(window, 'touchcancel');
 
-  var windowDrags = drags(touchstarts, touchmoves, touchcancels, touchends);
+  var rbStarts = filter(touchstarts, isEventRelatedToRocketBar);
+  // We want all drags that begin in RocketBar and end wherever.
+  var rbDrags = drags(rbStarts, touchmoves, touchcancels, touchends);
 
-  var windowCycles = filter(windowDrags, isFullCycle);
-
-  // Touchcyles which begin in RocketBar hotzone.
-  var rbCycles = filter(windowCycles, function (node) {
-    var firstTouch = value(head(node)).touches[0];
-    return isInRocketBarCollapsedHotzone(
-      firstTouch.screenX,
-      firstTouch.screenY,
-      screen.width
-    );
-  });
+  var rbDragStops = filter(rbDrags, isTailEventStop);
 
   // Taps on RocketBar are any swipe that covers very little ground.
-  var rbTaps = filter(rbCycles, isTap);
+  var rbTaps = filter(rbDragStops, isTap);
 
   // Swipes on RocketBar are anything else.
   // @TODO if ergo of swipable area is feeling bad, can create separate
   // touchcycle that expands hotzone based on direction of swipe.
-  var rbSwipes = reject(rbCycles, isTap);
+  var rbSwipes = reject(rbDragStops, isTap);
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
   // Prevent default on all rbCancel touch starts.
@@ -721,7 +767,11 @@ function app(window) {
     is_mode_task_manager: true
   });
 
-  var sheetTouchStarts = filter(touchstarts, withTargetClass('sh-head'));
+  var rbSwipeDiffs = map(rbSwipes, function (cycle) {
+    return { rocketbar_swipe: cycle };
+  });
+
+  var sheetTouchStarts = filter(touchstarts, dom.withTargetClass('sh-head'));
 
   var sheetDiffs = map(sheetTouchStarts, function (event) {
     return { sheet_triggered: event };
