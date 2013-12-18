@@ -120,10 +120,8 @@ video {
   transition: opacity 200ms linear;
   width: 130px;
 }
-.rb-rocketbar.js-expanded .rb-icons {
-  opacity: 0;
-}
 
+.rb-rocketbar.js-expanded .rb-icons,
 .rb-clear {
   display: none;
 }

@@ -720,8 +720,8 @@ function app(window) {
 
   var setTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
 
-  var toSetPanel = map(setTouchstarts, function () {
-    return { settings_panel_triggered: Date.now() };
+  var toSetPanel = map(setTouchstarts, function (event) {
+    return { settings_panel_triggered: event };
   });
 
   var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
@@ -797,11 +797,13 @@ function app(window) {
 
   // Build in/out
   var settingsPanelEl = document.getElementById('set-settings');
-  var settingsToggles = membrane(updates, layer(
-    updated('settings_panel_triggered'),
-    maybe('js-hide')
-  ));
-  write(settingsPanelEl, settingsToggles, dom.toggleClass);
+  var settingsToggles = membrane(updates, updated('settings_panel_triggered'));
+  write(settingsPanelEl, settingsToggles, function (target, state) {
+    var event = state.settings_panel_triggered;
+    event.preventDefault();
+    event.stopPropagation();
+    dom.toggleClass(target, 'js-hide');
+  });
 
   return updates;
 }
