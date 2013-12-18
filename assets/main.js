@@ -356,6 +356,9 @@ function patches(diffs, state) {
 // current state of `target`.
 //
 // Returns a new spread of non-null values produced by `brane()`.
+//
+// @TODO not a verb. This function derives new states.
+// Candidates: synthesize, derive, secrete (lol), sift. Maybe ok, tho.
 function membrane(spread, brane, target) {
   return accumulatable(function accumulateMembrane(next, initial) {
     var accumulated = initial;
