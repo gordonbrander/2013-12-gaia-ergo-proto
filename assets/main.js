@@ -761,19 +761,35 @@ function app(window) {
   dissolveIn(rbOverlayEl, toRbFocusedFromAnywhere, 200, 'ease-out');
   dissolveOut(rbOverlayEl, toRbBlurred, 200, 'ease-out');
 
-  var rbCancelEl = document.getElementById('rb-cancel');
-  addClass(rbCancelEl, toRbBlurred, 'js-hide');
-  removeClass(rbCancelEl, toRbFocusedFromAnywhere, 'js-hide');
+  var whenRbExpandedChange = membrane(updates, function (curr, prev) {
+    var relevantUpdates = (
+      isUpdated(curr, prev, 'is_mode_rocketbar_focused') ||
+      isUpdated(curr, prev, 'is_mode_task_manager')
+    );
 
-  var toRbExpanded = membrane(updates, function (curr, prev) {
-    return (
+    if (!relevantUpdates) return null;
+
+    // Expanded state is interdependant on various states.
+    // Derive expanded state from global state.
+    var isExpanded = (
       isChanged(curr, prev, 'is_mode_rocketbar_focused', true) ||
-      isChanged(curr, prev, 'is_mode_task_manager', true)
-    ) ? curr : null;
+      isCurrently(curr, prev, 'is_mode_task_manager', true)
+    );
+
+    // Return derived state.
+    return isExpanded;
   });
 
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
-  addClass(rbRocketbarEl, toRbExpanded, 'js-expanded');
+
+  write(rbRocketbarEl, whenRbExpandedChange, function (target, isExpanded) {
+    if(isExpanded) dom.addClass(target, 'js-expanded');
+    else dom.removeClass(target, 'js-expanded');
+  });
+
+  var rbCancelEl = document.getElementById('rb-cancel');
+  addClass(rbCancelEl, toRbBlurred, 'js-hide');
+  removeClass(rbCancelEl, toRbFocusedFromAnywhere, 'js-hide');
 
   var activeSheet = $('.sh-head');
   var toModeTaskManagerFromAnywhere = membrane(updates, changed('is_mode_task_manager', true));
