@@ -822,16 +822,6 @@ function app(window) {
   var activeSheet = $('.sh-head');
   var settingsPanelEl = document.getElementById('set-settings');
 
-  updates = unit(updates, settingsPanelEl, id, function (target, state) {
-    console.log(state, 'from unit');
-  });
-
-  /*
-
-  updates = unit(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
-    dom.toggleClass(target, 'js-hide');
-  });
-
   updates = unit(updates, keyboardEl, layer(
     changed('is_mode_rocketbar_focused', true),
     maybe('js-activated')
@@ -841,6 +831,12 @@ function app(window) {
     changed('is_mode_rocketbar_focused', false),
     maybe('js-activated')
   ), dom.removeClass);
+
+  updates = unit(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
+    dom.toggleClass(target, 'js-hide');
+  });
+
+  /*
 
   @TODO it turns out is_mode_task_manager is derived state. It's triggered
   by swipe updates, but it is dependent on other state.
