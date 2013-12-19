@@ -349,55 +349,25 @@ function patches(diffs, state) {
   });
 }
 
-// Filter and transform a spread of values using a "brane" function.
+// Write to a target as a side effect of accumulating `spread`.
 //
-//     function myBrane(curr, prev, target) { ... }
+// Filter and transform updates to state using a "membrane" function.
+//
+//     function myMembrane(curr, prev, target) { ... }
 //
 // `curr` is the current value of spread, `prev` is the previous value, and
-// `target` is an optional value supplied via the 3rd argument 2 membrane.
+// `target` is widget target.
 //
 // Function is expected to return either a value or null. If null is returned
-// value will be ignored during accumulation (that value will be skipped).
+// value will be ignored during write (that write will be skipped).
 //
-// Any value returned becomes the new `curr` value.
-//
-// Typically used to create calculated states based on state properties and
+// Typically used to create calculated states based on spread and
 // current state of `target`.
-//
-// Returns a new spread of non-null values produced by `brane()`.
-//
-// @TODO not a verb. This function derives new states.
-// Candidates: synthesize, derive, secrete (lol), sift. Maybe ok, tho.
-function membrane(spread, brane, target) {
-  return hub(accumulatable(function accumulateMembrane(next, initial) {
-    var accumulated = initial;
-    accumulate(spread, function nextAssert(prev, curr) {
-      // We're only interested in non-null comparisons.
-      // Skips first item in spread.
-      if (isNullish(prev)) return curr;
-
-      // Handle end-of-source scenario.
-      if (curr === end) return next(accumulated, end);
-
-      // Create a product from current and previous value + any target
-      // with state.
-      var product = brane(curr, prev, target);
-      // If product is not nullish, we accumulate. Nullish returns are
-      // considered "not state changes".
-      if (!isNullish(product)) accumulated = next(accumulated, product);
-
-      // Curr becomes next prev.
-      return curr;
-    }, null);
-  }));
-}
-
-// Write to a target as a side effect of accumulating `spread`.
 //
 // Returns a new accumulatable spread that contains items from original. Spread
 // will begin writes as soon as it is accumulated.
-function unit(spread, target, brane, update, enter, exit) {
-  return accumulatable(function accumulateUnit(next, initial) {
+function widget(spread, target, membrane, update, enter, exit) {
+  return accumulatable(function accumulateWidget(next, initial) {
     update = update || id;
     enter = enter || id;
     exit = exit || id;
@@ -408,7 +378,7 @@ function unit(spread, target, brane, update, enter, exit) {
 
     accumulate(spread, function nextWrite(prev, curr) {
       if (curr === end) exit(target);
-      else if (!isNullish(state = brane(curr, prev, target))) update(target, state);
+      else if (!isNullish(state = membrane(curr, prev, target))) update(target, state);
       accumulated = next(accumulated, curr);
     });
   });
@@ -822,17 +792,17 @@ function app(window) {
   var activeSheet = $('.sh-head');
   var settingsPanelEl = document.getElementById('set-settings');
 
-  updates = unit(updates, keyboardEl, layer(
+  updates = widget(updates, keyboardEl, layer(
     changed('is_mode_rocketbar_focused', true),
     maybe('js-activated')
   ), dom.addClass);
 
-  updates = unit(updates, keyboardEl, layer(
+  updates = widget(updates, keyboardEl, layer(
     changed('is_mode_rocketbar_focused', false),
     maybe('js-activated')
   ), dom.removeClass);
 
-  updates = unit(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
+  updates = widget(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
     dom.toggleClass(target, 'js-hide');
   });
 
