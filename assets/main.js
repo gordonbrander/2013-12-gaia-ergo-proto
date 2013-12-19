@@ -379,13 +379,12 @@ function widget(spread, target, membrane, update, enter, exit) {
       accumulated = next(accumulated, curr);
 
       if (curr === end) return exit(target);
-      if (isNullish(prev)) return curr;
 
       var state = membrane(curr, prev, target);
       if (!isNullish(state)) update(target, state);
 
       return curr;
-    });
+    }, null);
   });
 }
 
@@ -394,8 +393,14 @@ function get(thing, key) {
   return thing ? thing[key] : null;
 }
 
+// Check that both x and y are not null. Convenience for predicates below.
+function hasBoth(x, y) {
+  return !isNullish(x) && !isNullish(y);
+}
+
 function isUpdated(curr, prev, key) {
-  return get(prev, key) !== get(curr, key);
+  // Will return false for initial state cases where `prev` is null.
+  return hasBoth(curr, prev) && get(prev, key) !== get(curr, key);
 }
 
 // Creates an assertion function to test whether a given property at `key`
@@ -408,7 +413,8 @@ function updated(key) {
 }
 
 function hasTransitioned(curr, prev, key, from, to) {
-  return (get(prev, key) === from) && (get(curr, key) === to);
+  // Will return false for initial state cases where `prev` is null.
+  return hasBoth(curr, prev) && (get(prev, key) === from) && (get(curr, key) === to);
 }
 
 // Creates an assertion function that checks if a given
@@ -428,7 +434,7 @@ function transitioned(key, from, to) {
 }
 
 function isChanged(curr, prev, key, to) {
-  return (get(prev, key) !== to) && (get(curr, key) === to);
+  return hasBoth(curr, prev) && (get(prev, key) !== to) && (get(curr, key) === to);
 }
 
 // Creates an assertion function that checks if a given
@@ -441,7 +447,8 @@ function changed(key, to) {
 }
 
 function isCurrently(curr, prev, key, value) {
-  return get(curr, key) === value;
+  // Will return false for initial state cases where `prev` is null.
+  return hasBoth(curr, prev) && get(curr, key) === value;
 }
 
 // Creates an assertion function that checks if a given
@@ -454,7 +461,8 @@ function currently(key, value) {
 }
 
 function wasPreviously(curr, prev, key, value) {
-  return get(prev, key) === value;
+  // Will return false for initial state cases where `prev` is null.
+  return hasBoth(curr, prev) && get(prev, key) === value;
 }
 
 // Creates an assertion function that checks if a given
@@ -824,12 +832,10 @@ function app(window) {
   });
 
   updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', false), function (target) {
-    console.log('rb hit', false);
     dom.removeClass(target, 'js-activated');
   });
 
   updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', true), function (target) {
-    console.log('rb hit', true);
     dom.addClass(target, 'js-activated');
   });
 
