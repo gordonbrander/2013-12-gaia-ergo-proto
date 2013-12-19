@@ -376,7 +376,7 @@ function widget(spread, target, membrane, update, enter, exit) {
     var accumulated = initial;
     var state = null;
 
-    accumulate(spread, function nextWrite(prev, curr) {
+    accumulate(spread, function nextWidgetWrite(prev, curr) {
       if (curr === end) exit(target);
       else if (!isNullish(state = membrane(curr, prev, target))) update(target, state);
       accumulated = next(accumulated, curr);
@@ -714,6 +714,25 @@ function makeToggleClass(className) {
   return toggleMemoizedClassOn;
 }
 
+function deriveRocketbarExpanded(curr, prev) {
+  var relevantUpdates = (
+    isUpdated(curr, prev, 'is_mode_rocketbar_focused') ||
+    isUpdated(curr, prev, 'is_mode_task_manager')
+  );
+
+  if (!relevantUpdates) return null;
+
+  // Expanded state is interdependant on various states.
+  // Derive expanded state from global state.
+  var isExpanded = (
+    isChanged(curr, prev, 'is_mode_rocketbar_focused', true) ||
+    isCurrently(curr, prev, 'is_mode_task_manager', true)
+  );
+
+  // Return derived state.
+  return isExpanded;
+}
+
 function app(window) {
   // Listen for touch events.
   var touchstarts = on(window, 'touchstart');
@@ -806,19 +825,11 @@ function app(window) {
     dom.toggleClass(target, 'js-hide');
   });
 
-  /*
+  updates = widget(updates, rbRocketbarEl, deriveRocketbarExpanded, function (target, isExpanded) {
+    if(isExpanded) dom.addClass(target, 'js-expanded');
+    else dom.removeClass(target, 'js-expanded');
+  });
 
-  @TODO it turns out is_mode_task_manager is derived state. It's triggered
-  by swipe updates, but it is dependent on other state.
-
-  Maybe the best way to handle most updates is to pass along the event, giving
-  consumers the chance to test timestamps, prevent defaults and derive states
-  with membrane.
-  var fromModeTaskManagerViaSheet = membrane(updates, layer(
-    changed('sheet_triggered'),
-    currently('is_mode_task_manager', true)
-  ));
-  */
   return updates;
 }
 
