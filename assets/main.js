@@ -823,10 +823,10 @@ function app(window) {
 
   // Animation perf seems slightly faster when cancel is toggled via class
   // instead of CSS.
-  updates = widget(updates, rbCancelEl, updated('is_mode_rocketbar_focused'), function (target, state) {
+  updates = widget(updates, '#rb-cancel, #rb-overlay', updated('is_mode_rocketbar_focused'), function (target, state) {
     if(!state.is_mode_rocketbar_focused) dom.addClass(target, 'js-hide');
     else dom.removeClass(target, 'js-hide');
-  });
+  }, $);
 
   updates = widget(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
     dom.toggleClass(target, 'js-hide');
