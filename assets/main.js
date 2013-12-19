@@ -392,6 +392,28 @@ function membrane(spread, brane, target) {
   }));
 }
 
+// Write to a target as a side effect of accumulating `spread`.
+//
+// Returns a new accumulatable spread that contains items from original. Spread
+// will begin writes as soon as it is accumulated.
+function unit(spread, target, brane, update, enter, exit) {
+  return accumulatable(function accumulateUnit(next, initial) {
+    update = update || id;
+    enter = enter || id;
+    exit = exit || id;
+    target = enter(target);
+
+    var accumulated = initial;
+    var state = null;
+
+    accumulate(spread, function nextWrite(prev, curr) {
+      if (curr === end) exit(target);
+      else if (!isNullish(state = brane(curr, prev, target))) update(target, state);
+      accumulated = next(accumulated, curr);
+    });
+  });
+}
+
 // Get value at `key` on `thing`, or null if `thing` is not an object.
 function get(thing, key) {
   return thing ? thing[key] : null;
@@ -744,8 +766,6 @@ function app(window) {
   var rbSwipes = reject(rbDragStops, isTap);
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
-  // Prevent default on all rbCancel touch starts.
-  var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
 
   // Overlay's diff should include shrinking the RocketBar in cases where not
   // in Task Manager mode. Need to use sample().
@@ -759,7 +779,7 @@ function app(window) {
 
   // @TODO I may have to do some sampling against current state to determine
   // if RB stays expanded.
-  var rbBlurs = becomes(merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]), {
+  var rbBlurs = becomes(merge([rbCancelTouchstarts, rbOverlayTouchstarts]), {
     is_mode_rocketbar_focused: false
   });
 
@@ -796,75 +816,33 @@ function app(window) {
   });
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
-
-  // Build in
-  var keyboardActivations = membrane(updates, layer(
-    changed('is_mode_rocketbar_focused', true),
-    maybe('js-activated')
-  ));
-  write(keyboardEl, keyboardActivations, dom.addClass);
-
-  // Build out
-  var keyboardDeactivations = membrane(updates, layer(
-    changed('is_mode_rocketbar_focused', false),
-    maybe('js-activated')
-  ));
-  write(keyboardEl, keyboardDeactivations, dom.removeClass);
-
-
-  var toRbFocusedFromAnywhere = membrane(updates, changed('is_mode_rocketbar_focused', true));
-  var toRbBlurred = membrane(updates, changed('is_mode_rocketbar_focused', false));
-
   var rbOverlayEl = document.getElementById('rb-overlay');
-
-  dissolveIn(rbOverlayEl, toRbFocusedFromAnywhere, 200, 'ease-out');
-  dissolveOut(rbOverlayEl, toRbBlurred, 200, 'ease-out');
-
-  var whenRbExpandedChange = membrane(updates, function (curr, prev) {
-    var relevantUpdates = (
-      isUpdated(curr, prev, 'is_mode_rocketbar_focused') ||
-      isUpdated(curr, prev, 'is_mode_task_manager')
-    );
-
-    if (!relevantUpdates) return null;
-
-    // Expanded state is interdependant on various states.
-    // Derive expanded state from global state.
-    var isExpanded = (
-      isChanged(curr, prev, 'is_mode_rocketbar_focused', true) ||
-      isCurrently(curr, prev, 'is_mode_task_manager', true)
-    );
-
-    // Return derived state.
-    return isExpanded;
-  });
-
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
+  var rbCancelEl = document.getElementById('rb-cancel');
+  var activeSheet = $('.sh-head');
+  var settingsPanelEl = document.getElementById('set-settings');
 
-  write(rbRocketbarEl, whenRbExpandedChange, function (target, isExpanded) {
-    if(isExpanded) dom.addClass(target, 'js-expanded');
-    else dom.removeClass(target, 'js-expanded');
+  updates = unit(updates, settingsPanelEl, id, function (target, state) {
+    console.log(state, 'from unit');
   });
 
-  var rbCancelEl = document.getElementById('rb-cancel');
-  addClass(rbCancelEl, toRbBlurred, 'js-hide');
-  removeClass(rbCancelEl, toRbFocusedFromAnywhere, 'js-hide');
+  /*
 
-  var activeSheet = $('.sh-head');
-  var toModeTaskManagerFromAnywhere = membrane(updates, changed('is_mode_task_manager', true));
-  addClass(activeSheet, toModeTaskManagerFromAnywhere, 'sh-scaled');
-
-  // Build in/out
-  var settingsPanelEl = document.getElementById('set-settings');
-  var settingsToggles = membrane(updates, updated('settings_panel_triggered'));
-  write(settingsPanelEl, settingsToggles, function (target, state) {
-    var event = state.settings_panel_triggered;
-    event.preventDefault();
-    event.stopPropagation();
+  updates = unit(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
     dom.toggleClass(target, 'js-hide');
   });
 
-  /* @TODO it turns out is_mode_task_manager is derived state. It's triggered
+  updates = unit(updates, keyboardEl, layer(
+    changed('is_mode_rocketbar_focused', true),
+    maybe('js-activated')
+  ), dom.addClass);
+
+  updates = unit(updates, keyboardEl, layer(
+    changed('is_mode_rocketbar_focused', false),
+    maybe('js-activated')
+  ), dom.removeClass);
+
+  @TODO it turns out is_mode_task_manager is derived state. It's triggered
   by swipe updates, but it is dependent on other state.
 
   Maybe the best way to handle most updates is to pass along the event, giving
