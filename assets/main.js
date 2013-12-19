@@ -222,7 +222,7 @@ var head = list.head;
 var value = list.value;
 
 function print(spread) {
-  accumulate(spread, function (_, item) {
+  accumulate(spread, function nextPrint(_, item) {
     console.log(item);
   });
 }
@@ -322,7 +322,7 @@ function contains(set, subset) {
 // Note: it's a bad idea to mutate this state object
 // because other consumers will also be using it.
 function patches(diffs, state) {
-  return hub(accumulatable(function accumulateStates(next, initial) {
+  return accumulatable(function accumulateStates(next, initial) {
     // State must always be an object.
     state = state || {};
 
@@ -346,7 +346,7 @@ function patches(diffs, state) {
     }
 
     accumulate(diffs, nextDiff, state);
-  }));
+  });
 }
 
 // Filter and transform a spread of values using a "brane" function.
@@ -771,12 +771,6 @@ function app(window) {
     return { rocketbar_swipe: cycle };
   });
 
-  var sheetTouchStarts = filter(touchstarts, dom.withTargetClass('sh-head'));
-
-  var sheetDiffs = map(sheetTouchStarts, function (event) {
-    return { sheet_triggered: event };
-  });
-
   // @TODO loaded URL, scrolling homescreen, etc.
   var rbShrinking = null;
 
@@ -789,7 +783,7 @@ function app(window) {
     return { settings_panel_triggered: event };
   });
 
-  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel, sheetDiffs]);
+  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
 
   // Merge into global state object.
   var updates = patches(allDiffs, {
@@ -798,8 +792,7 @@ function app(window) {
     is_mode_task_manager: false,
     is_mode_rocketbar_focused: false,
     is_rocketbar_showing_results: false,
-    settings_panel_triggered: null,
-    sheet_triggered: null
+    settings_panel_triggered: null
   });
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
