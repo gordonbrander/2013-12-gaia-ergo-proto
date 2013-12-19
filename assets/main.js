@@ -374,12 +374,17 @@ function widget(spread, target, membrane, update, enter, exit) {
     target = enter(target);
 
     var accumulated = initial;
-    var state = null;
 
     accumulate(spread, function nextWidgetWrite(prev, curr) {
-      if (curr === end) exit(target);
-      else if (!isNullish(state = membrane(curr, prev, target))) update(target, state);
       accumulated = next(accumulated, curr);
+
+      if (curr === end) return exit(target);
+      if (isNullish(prev)) return curr;
+
+      var state = membrane(curr, prev, target);
+      if (!isNullish(state)) update(target, state);
+
+      return curr;
     });
   });
 }
@@ -811,25 +816,33 @@ function app(window) {
   var activeSheet = $('.sh-head');
   var settingsPanelEl = document.getElementById('set-settings');
 
-  updates = widget(updates, keyboardEl, layer(
-    changed('is_mode_rocketbar_focused', true),
-    maybe('js-activated')
-  ), dom.addClass);
+  updates = widget(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
+    var event = state.settings_panel_triggered;
+    event.preventDefault();
+    event.stopPropagation();
+    dom.toggleClass(target, 'js-hide');
+  });
 
-  updates = widget(updates, keyboardEl, layer(
-    changed('is_mode_rocketbar_focused', false),
-    maybe('js-activated')
-  ), dom.removeClass);
+  updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', false), function (target) {
+    console.log('rb hit', false);
+    dom.removeClass(target, 'js-activated');
+  });
+
+  updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', true), function (target) {
+    console.log('rb hit', true);
+    dom.addClass(target, 'js-activated');
+  });
 
   // Animation perf seems slightly faster when cancel is toggled via class
   // instead of CSS.
-  updates = widget(updates, '#rb-cancel, #rb-overlay', updated('is_mode_rocketbar_focused'), function (target, state) {
-    if(!state.is_mode_rocketbar_focused) dom.addClass(target, 'js-hide');
-    else dom.removeClass(target, 'js-hide');
-  }, $);
+  updates = widget(updates, $('#rb-cancel, #rb-overlay'), changed('is_mode_rocketbar_focused', true), function (target) {
+    dom.removeClass(target, 'js-hide');
+  });
 
-  updates = widget(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
-    dom.toggleClass(target, 'js-hide');
+  // Animation perf seems slightly faster when cancel is toggled via class
+  // instead of CSS.
+  updates = widget(updates, $('#rb-cancel, #rb-overlay'), changed('is_mode_rocketbar_focused', false), function (target) {
+    dom.addClass(target, 'js-hide');
   });
 
   updates = widget(updates, rbRocketbarEl, deriveRocketbarExpanded, function (target, isExpanded) {
