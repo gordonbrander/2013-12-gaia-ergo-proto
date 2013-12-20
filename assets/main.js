@@ -295,56 +295,68 @@ function enumerate(object, next, initial, reference) {
 }
 
 // Set `value` on `object` at `key`. Returns `object`.
-function copyTo_(object, key, value) {
-  // Don't copy nullish properties.
-  if (!isNullish(value)) object[key] = value;
+function set_(object, key, value) {
+  object[key] = value;
   return object;
 }
 
 // Shallow-copy `object` by copying all non-empty own properties to `into`.
 function copy_(into, object) {
-  return enumerate(object, copyTo_, into);
+  return enumerate(object, set_, into);
 }
 
 // Helper function for `contains`.
-function enumerateContains(isMissing, key, value, subset, set) {
+function enumIsMissing(isMissing, key, value, subset, set) {
   return (isMissing ? true : set[key] !== subset[key]);
 }
 
 // Checks if `set` contains all the values present in `subset`.
+// Returns boolean.
 function contains(set, subset) {
+  // Non-objects can't "contain" anything except themselves.
   if (!isObject(set) || !isObject(subset)) return false;
-  return !enumerate(subset, enumerateContains, false, set);
+  // Go through all properties of subset, checking if the keys/values match up
+  // in set.
+  return !enumerate(subset, enumIsMissing, false, set);
 }
 
 // Patch state with diff if it would change state.
 // Returns a new patched state object or original object.
 function patch(state, diff) {
-  return !isObject(state) || !isObject(diff) ?
-    // If either are not objects, patching is impossible. Return diff as
-    // new state.
-    diff :
-    // If diff is already contained in state (all properties in diff are same
-    // in state), return state. No need to change.
-    contains(state, diff) ?
-      state :
-      // Otherwise, create new state object.
-      copy_(copy_({}, state), diff);
+  // If either are not objects, patching is impossible. Return diff as
+  // new state.
+  if (!isObject(state) || !isObject(diff)) return diff;
+
+  // If diff is already contained in state (all properties in diff are same
+  // in state), return state. No need to change.
+  if (contains(state, diff)) return state;
+
+  // Otherwise, create new state object.
+  return copy_(copy_({}, state), diff);
 }
 
 // Patch a spread of diffs on to an initial state.
 function patches(diffs, state) {
-  return dropRepeats(reductions(diffs, patch, state));
+  return dropRepeats(reductions(diffs, patch, state || {}));
 }
 
+// Derive diff from current state, previous state and target.
+//
 // State takes a spread of diffs, an initial state, an optional derive function
 // and an optional target which contains state.
 //
 // Returns a new spread of patched/derived states.
-function states(spread, calc, target) {
-  calc = calc || id;
+function states(spread, derive, target) {
+  derive = derive || id;
   return dropRepeats(reductions(spread, function deriveStates(prev, state) {
-    return patch(prev, calc(prev, state, target));
+    // `prev` is previously calculated/patched state.
+    // Patch state with diff calculated from prev, state, target.
+    //
+    // We need to check that patched state changes something
+    // in prev. The derived state will almost always update state. But that
+    // doesn't mean it actually changes from prev.
+    var derived = patch(state, derive(prev, state, target));
+    return contains(prev, derived) ? prev : derived;
   }, null));
 }
 
@@ -372,16 +384,17 @@ function widget(spread, target, test, update, enter, exit) {
 
       // test function gets previous state, current state and target, returns
       // true/false. Updates that don't pass the test will be skipped for write.
-      if (test(prev, curr, target)) update(target, state);
+      if (test(prev, curr, target)) update(target, curr);
 
       return curr;
     }, null);
   });
 }
 
-// Get value at `key` on `thing`, or null if `thing` is not an object.
+// Get value at `key` on `thing`, or null if `thing` is not an object or no
+// value at key.
 function get(thing, key) {
-  return thing ? thing[key] : null;
+  return thing && !isNullish(thing[key]) ? thing[key] : null;
 }
 
 // Check that both x and y are not null. Convenience for predicates below.
@@ -390,8 +403,10 @@ function hasBoth(x, y) {
 }
 
 function isUpdated(prev, curr, key) {
-  // Will return false for initial state cases where `prev` is null.
-  return hasBoth(curr, prev) && get(prev, key) !== get(curr, key);
+  // Note that if key is null in both cases, this will also return false.
+  // So if you're checking against a key that doesn't exist, you'll get
+  // continual false.
+  return get(prev, key) !== get(curr, key);
 }
 
 // Creates an assertion function to test whether a given property at `key`
@@ -425,7 +440,7 @@ function transitioned(key, from, to) {
 }
 
 function isChanged(prev, curr, key, to) {
-  return hasBoth(curr, prev) && (get(prev, key) !== to) && (get(curr, key) === to);
+  return (get(prev, key) !== to) && (get(curr, key) === to);
 }
 
 // Creates an assertion function that checks if a given
@@ -439,7 +454,7 @@ function changed(key, to) {
 
 function isCurrently(prev, curr, key, value) {
   // Will return false for initial state cases where `prev` is null.
-  return hasBoth(curr, prev) && get(curr, key) === value;
+  return get(curr, key) === value;
 }
 
 // Creates an assertion function that checks if a given
@@ -666,10 +681,10 @@ function becomes(spread, value) {
   return reductions(spread, id, value);
 }
 
-function deriveIsRocketbarFocused(curr, prev, target) {
-  var event = value(head(curr.rocketbar_area_tapped));
+function deriveIsRocketbarFocused(prev, curr, target) {
+  var event = value(head(get(curr, 'rocketbar_area_tapped')));
 
-  if (!hasTouches(event)) return { is_rocketbar_focused: false };
+  if (!hasTouches(event)) return { is_mode_rocketbar_focused: false };
 
   var touch = event.touches[0];
 
@@ -677,17 +692,17 @@ function deriveIsRocketbarFocused(curr, prev, target) {
       isInRocketbarExpandedHotzone(touch.screenX, touch.screenY, screen.width) :
       isInRocketBarCollapsedHotzone(touch.screenX, touch.screenY, screen.width);
 
-  return { is_rocketbar_focused: test };
+  return { is_mode_rocketbar_focused: test, rocketbar_area_tapped: null };
 }
 
-function deriveIsModeTaskManager(curr) {
-  return curr;
+function deriveIsModeTaskManager(prev, curr) {
+  return {};
 }
 
-function deriveIsRocketbarExpanded(curr, prev, target) {
+function deriveIsRocketbarExpanded(prev, curr, target) {
   var isExpanded = (
-    isCurrently(curr, prev, 'is_rocketbar_focused') ||
-    isCurrently(curr, prev, 'is_mode_task_manager')
+    isCurrently(prev, curr, 'is_mode_rocketbar_focused', true) ||
+    isCurrently(prev, curr, 'is_mode_task_manager', true)
   );
 
   return { is_rocketbar_expanded: isExpanded };
@@ -728,16 +743,8 @@ function app(window) {
   // @TODO rocketbar focus and blur is actually a derived state from actions
   // taken around rocket bar.
 
-  var rbFocuses = becomes(rbTaps, {
-    is_mode_rocketbar_focused: true
-  });
-
   var rbBlurs = becomes(merge([rbCancelTouchstarts, rbOverlayTouchstarts]), {
     is_mode_rocketbar_focused: false
-  });
-
-  var toModeTaskManager = becomes(rbSwipes, {
-    is_mode_task_manager: true
   });
 
   // @TODO loaded URL, scrolling homescreen, etc.
@@ -755,13 +762,7 @@ function app(window) {
   var allDiffs = merge([toSetPanel, rbTapDiffs]);
 
   // Merge into global state object.
-  var updates = patches(allDiffs, {
-    // @TODO rocketbar expands with task manager mode, but expansion is
-    // independent (loading, homescreen etc).
-    is_mode_task_manager: false,
-    is_mode_rocketbar_focused: false,
-    is_rocketbar_showing_results: false
-  });
+  var updates = patches(allDiffs);
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
   var rbOverlayEl = document.getElementById('rb-overlay');
@@ -771,7 +772,7 @@ function app(window) {
   var settingsPanelEl = document.getElementById('set-settings');
 
   updates = states(updates, deriveIsRocketbarFocused, rbRocketbarEl);
-  updates = states(updates, deriveIsModeTaskManager);
+  //updates = states(updates, deriveIsModeTaskManager);
   updates = states(updates, deriveIsRocketbarExpanded);
 
   updates = widget(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
@@ -801,8 +802,8 @@ function app(window) {
     dom.addClass(target, 'js-hide');
   });
 
-  updates = widget(updates, rbRocketbarEl, updated('is_rocketbar_expanded'), function (target, isExpanded) {
-    if(isExpanded) dom.addClass(target, 'js-expanded');
+  updates = widget(updates, rbRocketbarEl, updated('is_rocketbar_expanded'), function (target, state) {
+    if(state.is_rocketbar_expanded) dom.addClass(target, 'js-expanded');
     else dom.removeClass(target, 'js-expanded');
   });
 
