@@ -165,7 +165,7 @@ define('linked-list', function (require, exports) {
 
   // Find head of reducible data structure.
   function head(reducible) {
-    return reducible.reduce(chooseCurr);
+    return reducible && reducible.reduce ? reducible.reduce(chooseCurr) : null;
   }
   exports.head = head;
 
@@ -295,14 +295,15 @@ function enumerate(object, next, initial, reference) {
 }
 
 // Set `value` on `object` at `key`. Returns `object`.
-function set_(object, key, value) {
-  object[key] = value;
+function copyTo_(object, key, value) {
+  // Don't copy nullish properties.
+  if (!isNullish(value)) object[key] = value;
   return object;
 }
 
-// Extend `into` with the own values of another object.
-function extend_(into, object) {
-  return enumerate(object, set_, into);
+// Shallow-copy `object` by copying all non-empty own properties to `into`.
+function copy_(into, object) {
+  return enumerate(object, copyTo_, into);
 }
 
 // Helper function for `contains`.
@@ -319,60 +320,61 @@ function contains(set, subset) {
 // Patch state with diff if it would change state.
 // Returns a new patched state object or original object.
 function patch(state, diff) {
-  return !contains(state, diff) ? extend_(extend_({}, state), diff) : diff;
+  return !isObject(state) || !isObject(diff) ?
+    // If either are not objects, patching is impossible. Return diff as
+    // new state.
+    diff :
+    // If diff is already contained in state (all properties in diff are same
+    // in state), return state. No need to change.
+    contains(state, diff) ?
+      state :
+      // Otherwise, create new state object.
+      copy_(copy_({}, state), diff);
 }
 
-// Patch a series of diffs on to an object.
-// Returns a spread with each state of the object over time.
-//
-// Note: it's a bad idea to mutate this state object
-// because other consumers will also be using it.
+// Patch a spread of diffs on to an initial state.
 function patches(diffs, state) {
-  return accumulatable(function accumulateStates(next, initial) {
-    // State must always be an object.
-    state = state || {};
-
-    // Accumulate initial state.
-    var accumulated = next(initial, state);
-
-    function nextDiff(prev, diff) {
-      if (diff === end) return next(accumulated, end);
-
-      // If values in `state` are different from values in `diff`...
-      // This is a shallow comparison of strict equality.
-      // Goal: diffs that do not change current state are skipped.
-
-      // Update state.
-      var state = patch(prev, diff);
-
-      // Accumulate `next` with new state.
-      if (state !== prev) accumulated = next(accumulated, state);
-
-      return state;
-    }
-
-    accumulate(diffs, nextDiff, state);
-  });
+  return dropRepeats(reductions(diffs, patch, state));
 }
 
-// State takes a spread of objects, a derive function and an optional target
-// which contains state. Returns a new spread of derived states.
-// @TODO state and patches are very similar. Could probably combine.
-function states(spread, derive, target) {
-  return accumulatable(function accumulateStates(next, initial) {
+// State takes a spread of diffs, an initial state, an optional derive function
+// and an optional target which contains state.
+//
+// Returns a new spread of patched/derived states.
+function states(spread, calc, target) {
+  calc = calc || id;
+  return dropRepeats(reductions(spread, function deriveStates(prev, state) {
+    return patch(prev, calc(prev, state, target));
+  }, null));
+}
+
+// Write to a target as a side effect of accumulating `spread`.
+//
+// @TODO I'm currently doing it this way so as not to miss any updates.
+// However, if each write function gets it's own "forked" state stream instead
+// of using hub(), this may not be a problem. Need to test.
+//
+// Returns a new accumulatable spread that contains items from original. Spread
+// will begin writes as soon as it is accumulated.
+function widget(spread, target, test, update, enter, exit) {
+  return accumulatable(function accumulateWidget(next, initial) {
+    update = update || id;
+    enter = enter || id;
+    exit = exit || id;
+    target = enter(target);
+
     var accumulated = initial;
 
-    // @TODO have to skip derived states that are same as prev.
-    accumulate(spread, function nextState(prev, update) {
-      if (update === end) return next(accumulated, end);
+    accumulate(spread, function nextWidgetWrite(prev, curr) {
+      accumulated = next(accumulated, curr);
 
-      // derive() should return a diff.
-      var diff = derive(update, prev, target);
-      var state = patch(prev, diff);
-      if (state !== prev) accumulated = next(accumulated, state);
+      if (curr === end) return exit(target);
 
-      // Curr becomes new prev for nextDerive.
-      return state;
+      // test function gets previous state, current state and target, returns
+      // true/false. Updates that don't pass the test will be skipped for write.
+      if (test(prev, curr, target)) update(target, state);
+
+      return curr;
     }, null);
   });
 }
@@ -387,7 +389,7 @@ function hasBoth(x, y) {
   return !isNullish(x) && !isNullish(y);
 }
 
-function isUpdated(curr, prev, key) {
+function isUpdated(prev, curr, key) {
   // Will return false for initial state cases where `prev` is null.
   return hasBoth(curr, prev) && get(prev, key) !== get(curr, key);
 }
@@ -395,13 +397,13 @@ function isUpdated(curr, prev, key) {
 // Creates an assertion function to test whether a given property at `key`
 // has been updated.
 function updated(key) {
-  function maybeUpdated(curr, prev) {
-    return isUpdated(curr, prev, key);
+  function maybeUpdated(prev, curr) {
+    return isUpdated(prev, curr, key);
   }
   return maybeUpdated;
 }
 
-function hasTransitioned(curr, prev, key, from, to) {
+function hasTransitioned(prev, curr, key, from, to) {
   // Will return false for initial state cases where `prev` is null.
   return hasBoth(curr, prev) && (get(prev, key) === from) && (get(curr, key) === to);
 }
@@ -416,26 +418,26 @@ function hasTransitioned(curr, prev, key, from, to) {
 //
 //     var x = asserts(updates, transitioned('awesome', false, true));
 function transitioned(key, from, to) {
-  function maybeTransitioned(curr, prev) {
-    return hasTransitioned(curr, prev, key, from, to);
+  function maybeTransitioned(prev, curr) {
+    return hasTransitioned(prev, curr, key, from, to);
   }
   return maybeTransitioned;
 }
 
-function isChanged(curr, prev, key, to) {
+function isChanged(prev, curr, key, to) {
   return hasBoth(curr, prev) && (get(prev, key) !== to) && (get(curr, key) === to);
 }
 
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `to` on `curr` but not on `prev`
 function changed(key, to) {
-  function maybeChanged(curr, prev) {
-    return isChanged(curr, prev, key, to);
+  function maybeChanged(prev, curr) {
+    return isChanged(prev, curr, key, to);
   }
   return maybeChanged;
 }
 
-function isCurrently(curr, prev, key, value) {
+function isCurrently(prev, curr, key, value) {
   // Will return false for initial state cases where `prev` is null.
   return hasBoth(curr, prev) && get(curr, key) === value;
 }
@@ -443,13 +445,13 @@ function isCurrently(curr, prev, key, value) {
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `value` in `curr`.
 function currently(key, value) {
-  function maybeCurrently(curr, prev) {
-    return isCurrently(curr, prev, key, value);
+  function maybeCurrently(prev, curr) {
+    return isCurrently(prev, curr, key, value);
   }
   return maybeCurrently;
 }
 
-function wasPreviously(curr, prev, key, value) {
+function wasPreviously(prev, curr, key, value) {
   // Will return false for initial state cases where `prev` is null.
   return hasBoth(curr, prev) && get(prev, key) === value;
 }
@@ -457,8 +459,8 @@ function wasPreviously(curr, prev, key, value) {
 // Creates an assertion function that checks if a given
 // property at `key` is equal to `value` in `prev`.
 function previously(key, value) {
-  function maybePreviously(curr, prev) {
-    return wasPreviously(curr, prev, key, value);
+  function maybePreviously(prev, curr) {
+    return wasPreviously(prev, curr, key, value);
   }
   return maybePreviously;
 }
@@ -758,9 +760,7 @@ function app(window) {
     // independent (loading, homescreen etc).
     is_mode_task_manager: false,
     is_mode_rocketbar_focused: false,
-    is_rocketbar_showing_results: false,
-    settings_panel_triggered: null,
-    rocketbar_area_tapped: null
+    is_rocketbar_showing_results: false
   });
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
@@ -801,7 +801,7 @@ function app(window) {
     dom.addClass(target, 'js-hide');
   });
 
-  updates = widget(updates, rbRocketbarEl, deriveRocketbarExpanded, function (target, isExpanded) {
+  updates = widget(updates, rbRocketbarEl, updated('is_rocketbar_expanded'), function (target, isExpanded) {
     if(isExpanded) dom.addClass(target, 'js-expanded');
     else dom.removeClass(target, 'js-expanded');
   });
