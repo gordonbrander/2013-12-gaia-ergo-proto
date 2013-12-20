@@ -316,6 +316,12 @@ function contains(set, subset) {
   return !enumerate(subset, enumerateContains, false, set);
 }
 
+// Patch state with diff if it would change state.
+// Returns a new patched state object or original object.
+function patch(state, diff) {
+  return !contains(state, diff) ? extend_(extend_({}, state), diff) : diff;
+}
+
 // Patch a series of diffs on to an object.
 // Returns a spread with each state of the object over time.
 //
@@ -329,19 +335,19 @@ function patches(diffs, state) {
     // Accumulate initial state.
     var accumulated = next(initial, state);
 
-    function nextDiff(state, diff) {
-      if (diff === end) {
-        next(accumulated, end);
-      }
+    function nextDiff(prev, diff) {
+      if (diff === end) return next(accumulated, end);
+
       // If values in `state` are different from values in `diff`...
       // This is a shallow comparison of strict equality.
       // Goal: diffs that do not change current state are skipped.
-      else if (!contains(state, diff)) {
-        // Update state.
-        state = extend_(extend_({}, state), diff);
-        // Accumulate `next` with new state.
-        accumulated = next(accumulated, state);
-      }
+
+      // Update state.
+      var state = patch(prev, diff);
+
+      // Accumulate `next` with new state.
+      if (state !== prev) accumulated = next(accumulated, state);
+
       return state;
     }
 
@@ -349,56 +355,24 @@ function patches(diffs, state) {
   });
 }
 
-// Membrane takes a spread of states, a derive function and an optional target
-// which maintains state. Returns a new spread of derived states.
-function membrane(spread, derive, target) {
-  return accumulatable(function accumulateMembrane(next, initial) {
+// State takes a spread of objects, a derive function and an optional target
+// which contains state. Returns a new spread of derived states.
+// @TODO state and patches are very similar. Could probably combine.
+function states(spread, derive, target) {
+  return accumulatable(function accumulateStates(next, initial) {
     var accumulated = initial;
 
-    accumulate(spread, function nextDerive(prev, curr) {
-      if (right === end) next(accumulated, end);
-      else accumulated = next(accumulated, derive(curr, prev, target));
+    // @TODO have to skip derived states that are same as prev.
+    accumulate(spread, function nextState(prev, update) {
+      if (update === end) return next(accumulated, end);
+
+      // derive() should return a diff.
+      var diff = derive(update, prev, target);
+      var state = patch(prev, diff);
+      if (state !== prev) accumulated = next(accumulated, state);
+
       // Curr becomes new prev for nextDerive.
-      return curr;
-    }, null);
-  });
-}
-
-// Write to a target as a side effect of accumulating `spread`.
-//
-// Filter and transform updates to state using a "membrane" function.
-//
-//     function myMembrane(curr, prev, target) { ... }
-//
-// `curr` is the current value of spread, `prev` is the previous value, and
-// `target` is widget target.
-//
-// Function is expected to return either a value or null. If null is returned
-// value will be ignored during write (that write will be skipped).
-//
-// Typically used to create calculated states based on spread and
-// current state of `target`.
-//
-// Returns a new accumulatable spread that contains items from original. Spread
-// will begin writes as soon as it is accumulated.
-function widget(spread, target, membrane, update, enter, exit) {
-  return accumulatable(function accumulateWidget(next, initial) {
-    update = update || id;
-    enter = enter || id;
-    exit = exit || id;
-    target = enter(target);
-
-    var accumulated = initial;
-
-    accumulate(spread, function nextWidgetWrite(prev, curr) {
-      accumulated = next(accumulated, curr);
-
-      if (curr === end) return exit(target);
-
-      var state = membrane(curr, prev, target);
-      if (!isNullish(state)) update(target, state);
-
-      return curr;
+      return state;
     }, null);
   });
 }
@@ -406,10 +380,6 @@ function widget(spread, target, membrane, update, enter, exit) {
 // Get value at `key` on `thing`, or null if `thing` is not an object.
 function get(thing, key) {
   return thing ? thing[key] : null;
-}
-
-function possibly(value, is) {
-  return is ? value : null;
 }
 
 // Check that both x and y are not null. Convenience for predicates below.
@@ -426,7 +396,7 @@ function isUpdated(curr, prev, key) {
 // has been updated.
 function updated(key) {
   function maybeUpdated(curr, prev) {
-    return isUpdated(curr, prev, key) ? curr : null;
+    return isUpdated(curr, prev, key);
   }
   return maybeUpdated;
 }
@@ -447,7 +417,7 @@ function hasTransitioned(curr, prev, key, from, to) {
 //     var x = asserts(updates, transitioned('awesome', false, true));
 function transitioned(key, from, to) {
   function maybeTransitioned(curr, prev) {
-    return hasTransitioned(curr, prev, key, from, to) ? curr : null;
+    return hasTransitioned(curr, prev, key, from, to);
   }
   return maybeTransitioned;
 }
@@ -460,7 +430,7 @@ function isChanged(curr, prev, key, to) {
 // property at `key` is equal to `to` on `curr` but not on `prev`
 function changed(key, to) {
   function maybeChanged(curr, prev) {
-    return isChanged(curr, prev, key, to) ? curr : null;
+    return isChanged(curr, prev, key, to);
   }
   return maybeChanged;
 }
@@ -474,7 +444,7 @@ function isCurrently(curr, prev, key, value) {
 // property at `key` is equal to `value` in `curr`.
 function currently(key, value) {
   function maybeCurrently(curr, prev) {
-    return isCurrently(curr, prev, key, value) ? curr : null;
+    return isCurrently(curr, prev, key, value);
   }
   return maybeCurrently;
 }
@@ -488,92 +458,60 @@ function wasPreviously(curr, prev, key, value) {
 // property at `key` is equal to `value` in `prev`.
 function previously(key, value) {
   function maybePreviously(curr, prev) {
-    return wasPreviously(curr, prev, key, value) ? curr : null;
+    return wasPreviously(curr, prev, key, value);
   }
   return maybePreviously;
 }
 
-// Combine `n` membrane functions into a single composed membrane function
-// that filters `curr` through membranes until either one returns null or
-// all return a value.
-function layer(/* brane, ... */) {
-  var branes = slice(arguments);
+// Combine `n` assertion functions into a single assertion function
+// that tests all given assertions using an `and` relationship.
+//
+// Pass each assertion function as an argument to `all`. Returns an
+// assertion function.
+//
+// Protip: returned assertion function is composable with `all` or `any`
+// allowing for complex nested boolean logic.
+function all(/* judge, ... */) {
+  var judges = slice(arguments);
 
-  function maybeLayer(curr, prev, target) {
-    // Pass curr through every brane in sequence. If any brane returns null,
-    // the subsequent branes will be skipped and null will be returned.
-    for (var i = 0; i < branes.length; i += 1)
-      curr = !isNullish(curr) ? branes[i](curr, prev, target) : null;
+  function judgeAll(target, curr, prev) {
+    var isPassing = true;
 
-    return curr;
+    // Run every assertion function in sequence. If any are not passed,
+    // isPassing becomes false. Every assertion must return true.
+    for (var i = 0; i < judges.length; i += 1) {
+      isPassing = isPassing ? judges[i](target, curr, prev) : false;
+    }
+
+    return isPassing;
   }
 
-  return maybeLayer;
+  return judgeAll;
 }
 
-function timeout(ms) {
-  return accumulatable(function accumulateTimeout(next, initial) {
-    var accumulated = initial;
+// Combine `n` assertion functions into a single assertion function
+// that tests all given assertions using an `or` relationship.
+//
+// Pass each assertion function as an argument to `any`. Returns an
+// assertion function.
+//
+// Protip: returned assertion function is composable with `all` or `any`
+// allowing for complex nested boolean logic.
+function any(/* judge, ... */) {
+  var judges = slice(arguments);
 
-    // Accumulate the first interval.
-    accumulated = next(accumulated, Date.now());
+  function judgeAny(target, curr, prev) {
+    var isPassing = false;
 
-    setTimeout(function onInterval() {
-      next(accumulated, end);
-    }, ms);
-  });
-}
+    // Run every assertion function in sequence. If any are not passed,
+    // isPassing becomes false. Every assertion must return true.
+    for (var i = 0; i < judges.length; i += 1)
+      isPassing = !isPassing ? judges[i](target, curr, prev) : true;
 
-function updateDissolveOut(element) {
-  element.style.opacity = 0;
-}
-
-function exitDissolveOut(element) {
-  element.style.transition = 'none';
-  element.style.display = 'none';
-  return element;
-}
-
-function dissolveOut(element, trigger, ms, easing) {
-  // Create `enter` transition from arguments.
-  function enterDissolveOut(element) {
-    element.style.opacity = 1;
-    element.style.display = 'block';
-    element.style.transition = 'opacity ' + ms + 'ms ' + easing;
-    return element;
+    return isPassing;
   }
 
-  write(element, trigger, function updateTrigger(element) {
-    var time = timeout(ms + 100);
-    write(element, time, updateDissolveOut, enterDissolveOut, exitDissolveOut);
-  });
-}
-
-function updateDissolveIn(element) {
-  element.style.opacity = 1;
-}
-
-function exitDissolveIn(element) {
-  element.style.transition = 'none';
-  return element;
-}
-
-function dissolveIn(element, trigger, ms, easing) {
-  // Create `enter` transition from argumentse
-  function enterDissolveIn(element) {
-    element.style.display = 'block';
-    element.style.opacity = 0;
-    element.style.transition = 'opacity ' + ms + 'ms ' + easing;
-    // @hack forces style resolution. Gross!
-    // See https://bugzilla.mozilla.org/show_bug.cgi?id=649247.
-    element.clientTop;
-    return element;
-  }
-
-  write(element, trigger, function updateTrigger(element) {
-    var time = timeout(ms + 100);
-    write(element, time, updateDissolveIn, enterDissolveIn, exitDissolveIn);
-  });
+  return judgeAny;
 }
 
 // Check if an event is an ending event (cancel or end).
@@ -726,32 +664,10 @@ function becomes(spread, value) {
   return reductions(spread, id, value);
 }
 
-// @TODO remove these.
-function makeAddClass(className) {
-  function addMemoizedClassTo(element) {
-    return dom.addClass(element, className);
-  }
-  return addMemoizedClassTo;
-}
-
-function makeRemoveClass(className) {
-  function removeMemoizedClassFrom(element) {
-    return dom.removeClass(element, className);
-  }
-  return removeMemoizedClassFrom;
-}
-
-function makeToggleClass(className) {
-  function toggleMemoizedClassOn(element) {
-    return dom.toggleClass(element, className);
-  }
-  return toggleMemoizedClassOn;
-}
-
-function deriveRocketbarIsFocusedWhenTapped(curr, prev, target) {
+function deriveIsRocketbarFocused(curr, prev, target) {
   var event = value(head(curr.rocketbar_area_tapped));
 
-  if (!hasTouches(event)) return null;
+  if (!hasTouches(event)) return { is_rocketbar_focused: false };
 
   var touch = event.touches[0];
 
@@ -759,21 +675,20 @@ function deriveRocketbarIsFocusedWhenTapped(curr, prev, target) {
       isInRocketbarExpandedHotzone(touch.screenX, touch.screenY, screen.width) :
       isInRocketBarCollapsedHotzone(touch.screenX, touch.screenY, screen.width);
 
-  var state = Object.create(curr);
-  state.is_rocketbar_focused = test;
-
-  return state;
+  return { is_rocketbar_focused: test };
 }
 
-var deriveRocketbarIsFocused = layer(updated('rocketbar_area_tapped'), deriveRocketbarIsFocusedWhenTapped);
+function deriveIsModeTaskManager(curr) {
+  return curr;
+}
 
-function deriveRocketbarExpanded(curr, prev, target) {
-  var possiblyFocused = deriveRocketbarFocus(curr, prev, target);
+function deriveIsRocketbarExpanded(curr, prev, target) {
+  var isExpanded = (
+    isCurrently(curr, prev, 'is_rocketbar_focused') ||
+    isCurrently(curr, prev, 'is_mode_task_manager')
+  );
 
-  if (!isNullish(possiblyFocused)) return curr;
-
-  // Return derived state.
-  return isExpanded;
+  return { is_rocketbar_expanded: isExpanded };
 }
 
 function app(window) {
@@ -855,19 +770,15 @@ function app(window) {
   var activeSheet = $('.sh-head');
   var settingsPanelEl = document.getElementById('set-settings');
 
+  updates = states(updates, deriveIsRocketbarFocused, rbRocketbarEl);
+  updates = states(updates, deriveIsModeTaskManager);
+  updates = states(updates, deriveIsRocketbarExpanded);
+
   updates = widget(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
     var event = state.settings_panel_triggered;
     event.preventDefault();
     event.stopPropagation();
     dom.toggleClass(target, 'js-hide');
-  });
-
-  updates = widget(updates, rbRocketbarEl, layer(
-    deriveRocketbarFocus,
-    function (curr) { return value(head(curr.rocketbar_area_tapped)); }
-  ), function (target, event) {
-    event.preventDefault();
-    event.stopPropagation();
   });
 
   updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', false), function (target) {
