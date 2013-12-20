@@ -349,6 +349,21 @@ function patches(diffs, state) {
   });
 }
 
+// Membrane takes a spread of states, a derive function and an optional target
+// which maintains state. Returns a new spread of derived states.
+function membrane(spread, derive, target) {
+  return accumulatable(function accumulateMembrane(next, initial) {
+    var accumulated = initial;
+
+    accumulate(spread, function nextDerive(prev, curr) {
+      if (right === end) next(accumulated, end);
+      else accumulated = next(accumulated, derive(curr, prev, target));
+      // Curr becomes new prev for nextDerive.
+      return curr;
+    }, null);
+  });
+}
+
 // Write to a target as a side effect of accumulating `spread`.
 //
 // Filter and transform updates to state using a "membrane" function.
@@ -391,6 +406,10 @@ function widget(spread, target, membrane, update, enter, exit) {
 // Get value at `key` on `thing`, or null if `thing` is not an object.
 function get(thing, key) {
   return thing ? thing[key] : null;
+}
+
+function possibly(value, is) {
+  return is ? value : null;
 }
 
 // Check that both x and y are not null. Convenience for predicates below.
@@ -472,13 +491,6 @@ function previously(key, value) {
     return wasPreviously(curr, prev, key, value) ? curr : null;
   }
   return maybePreviously;
-}
-
-function maybe(value) {
-  function maybeValue(curr) {
-    return !isNullish(curr) ? value : null;
-  }
-  return maybeValue;
 }
 
 // Combine `n` membrane functions into a single composed membrane function
@@ -657,9 +669,18 @@ function isInRocketBarCollapsedHotzone(x, y, screenW) {
   );
 }
 
+// @TODO ok, this is the idea: we use this in initial patch stage to narrow
+// down the swipes. But maybe it's actually more useful to do this at the
+// membrane level?
+function isInRocketbarExpandedHotzone(x, y, screenW) {
+  return inRange(x, 0, screenW) && inRange(y, 0, 50);
+}
+
+// We capture all events possibly related to the RocketBar, then tease apart
+// what we're actually interested in at membrane level.
 function isEventRelatedToRocketBar(event) {
   var firstTouch = event.touches[0];
-  return isInRocketBarCollapsedHotzone(
+  return isInRocketbarExpandedHotzone(
     firstTouch.screenX,
     firstTouch.screenY,
     screen.width
@@ -727,20 +748,29 @@ function makeToggleClass(className) {
   return toggleMemoizedClassOn;
 }
 
-function deriveRocketbarExpanded(curr, prev) {
-  var relevantUpdates = (
-    isUpdated(curr, prev, 'is_mode_rocketbar_focused') ||
-    isUpdated(curr, prev, 'is_mode_task_manager')
-  );
+function deriveRocketbarIsFocusedWhenTapped(curr, prev, target) {
+  var event = value(head(curr.rocketbar_area_tapped));
 
-  if (!relevantUpdates) return null;
+  if (!hasTouches(event)) return null;
 
-  // Expanded state is interdependant on various states.
-  // Derive expanded state from global state.
-  var isExpanded = (
-    isChanged(curr, prev, 'is_mode_rocketbar_focused', true) ||
-    isCurrently(curr, prev, 'is_mode_task_manager', true)
-  );
+  var touch = event.touches[0];
+
+  var test = hasClass(target, 'js-expanded') ?
+      isInRocketbarExpandedHotzone(touch.screenX, touch.screenY, screen.width) :
+      isInRocketBarCollapsedHotzone(touch.screenX, touch.screenY, screen.width);
+
+  var state = Object.create(curr);
+  state.is_rocketbar_focused = test;
+
+  return state;
+}
+
+var deriveRocketbarIsFocused = layer(updated('rocketbar_area_tapped'), deriveRocketbarIsFocusedWhenTapped);
+
+function deriveRocketbarExpanded(curr, prev, target) {
+  var possiblyFocused = deriveRocketbarFocus(curr, prev, target);
+
+  if (!isNullish(possiblyFocused)) return curr;
 
   // Return derived state.
   return isExpanded;
@@ -756,11 +786,14 @@ function app(window) {
   var rbStarts = filter(touchstarts, isEventRelatedToRocketBar);
   // We want all drags that begin in RocketBar and end wherever.
   var rbDrags = drags(rbStarts, touchmoves, touchcancels, touchends);
-
   var rbDragStops = filter(rbDrags, isTailEventStop);
 
   // Taps on RocketBar are any swipe that covers very little ground.
   var rbTaps = filter(rbDragStops, isTap);
+
+  var rbTapDiffs = map(rbTaps, function (node) {
+    return { rocketbar_area_tapped: node };
+  });
 
   // Swipes on RocketBar are anything else.
   // @TODO if ergo of swipable area is feeling bad, can create separate
@@ -775,22 +808,19 @@ function app(window) {
 
   // Map to states
 
+  // @TODO rocketbar focus and blur is actually a derived state from actions
+  // taken around rocket bar.
+
   var rbFocuses = becomes(rbTaps, {
     is_mode_rocketbar_focused: true
   });
 
-  // @TODO I may have to do some sampling against current state to determine
-  // if RB stays expanded.
   var rbBlurs = becomes(merge([rbCancelTouchstarts, rbOverlayTouchstarts]), {
     is_mode_rocketbar_focused: false
   });
 
   var toModeTaskManager = becomes(rbSwipes, {
     is_mode_task_manager: true
-  });
-
-  var rbSwipeDiffs = map(rbSwipes, function (cycle) {
-    return { rocketbar_swipe: cycle };
   });
 
   // @TODO loaded URL, scrolling homescreen, etc.
@@ -805,7 +835,7 @@ function app(window) {
     return { settings_panel_triggered: event };
   });
 
-  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
+  var allDiffs = merge([toSetPanel, rbTapDiffs]);
 
   // Merge into global state object.
   var updates = patches(allDiffs, {
@@ -814,7 +844,8 @@ function app(window) {
     is_mode_task_manager: false,
     is_mode_rocketbar_focused: false,
     is_rocketbar_showing_results: false,
-    settings_panel_triggered: null
+    settings_panel_triggered: null,
+    rocketbar_area_tapped: null
   });
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
@@ -829,6 +860,14 @@ function app(window) {
     event.preventDefault();
     event.stopPropagation();
     dom.toggleClass(target, 'js-hide');
+  });
+
+  updates = widget(updates, rbRocketbarEl, layer(
+    deriveRocketbarFocus,
+    function (curr) { return value(head(curr.rocketbar_area_tapped)); }
+  ), function (target, event) {
+    event.preventDefault();
+    event.stopPropagation();
   });
 
   updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', false), function (target) {
