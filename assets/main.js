@@ -3,6 +3,37 @@ define('dom', function (require, exports) {
   var a = require('accumulators');
   var handleEnd = a.handleEnd;
 
+  var __slice__ = Array.prototype.slice;
+  function slice(arraylike, start, end) {
+    return __slice__.call(arraylike, start, end);
+  }
+  exports.slice = slice;
+
+
+  // Check if a `thing` is an object with an own `length` property. This is the
+  // closest proxy to knowing if an object is arraylike.
+  function hasLength(thing) {
+    return thing && thing.hasOwnProperty && thing.hasOwnProperty('length');
+  }
+
+  // Get a real array of elements. `element` argument can be a single element,
+  // an arraylike list of elements, or a selector to be queried.
+  function $(element) {
+    // If `element` is actually a selector string, query for elements, then
+    // slice nodeList into true array.
+    if (typeof element === 'string')
+      return slice(document.querySelectorAll(element));
+
+    // If `element` has a length property (it's arraylike), we slice it.
+    // This covers cases where you may want to pass a nodeList to `$`.
+    if (hasLength(element)) return slice(element);
+
+    // Otherwise, we can assume element is just an element. Elements are
+    // accumulatable, so we can just return it.
+    return element;
+  }
+  exports.$ = $;
+
   // Internal higher-order function that expidites creating "setters" that
   // can operate on multiple items at once. Pass a `setOn` function that looks
   // like:
@@ -61,7 +92,7 @@ define('dom', function (require, exports) {
       element.className = prevElementClass + ' ' + elementClass;
     return elementClass;
   });
-  exports.addClass = setAddClass;
+  exports.addClass = addClass;
 
   var removeClass = multisetter(function removeClassFrom(elementClass, element) {
     var pattern = RegExp(elementClass, 'g');
@@ -153,8 +184,10 @@ define('linked-list', function (require, exports) {
   }
   exports.next = next;
 
-  function value(node) {
-    return node && node.value ? node.value : null;
+  // Return value of something.
+  function value(thing) {
+    // If thing has a value, return it. Otherwise
+    return (thing && thing.value != null) ? thing.value : thing;
   }
   exports.value = value;
 
@@ -188,17 +221,10 @@ define('linked-list', function (require, exports) {
 var a = require('accumulators');
 var on = a.on;
 var map = a.map;
-var hub = a.hub;
 var filter = a.filter;
 var reject = a.reject;
-var classname = a.classname;
-var addClass = a.addClass;
-var removeClass = a.removeClass;
 // @TODO it may be that these DOM writers are not that useful. Perhaps a simple
 // collection of DOM functions on spreads will be valuable instead.
-var setAddClass = a.setAddClass;
-var setRemoveClass = a.setRemoveClass;
-var $ = a.$;
 var merge = a.merge;
 var reductions = a.reductions;
 var accumulatable = a.accumulatable;
@@ -206,9 +232,9 @@ var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
 var id = a.id;
-var slice = a.slice;
 
 var dom = require('dom');
+var $ = dom.$;
 var hasClass = dom.hasClass;
 var hasTouches = dom.hasTouches;
 var withTargetId = dom.withTargetId;
@@ -279,6 +305,41 @@ function dropRepeats(spread) {
   return asserts(spread, isDifferent);
 }
 
+// Write to a target as a side-effect of accumulating `spread`.
+//
+// `enter(target)` must return a value representing the target to be written
+// to. This gives you a chance to create the target from a value, or modify
+// the target when writing begins.
+//
+// `update(target, value)` describes how to write to the target. It is not
+// required to return a value.
+//
+// `exit(target)` allows you to destroy or modify the target when spread has
+// ended. It is not required to return a value.
+//
+// `update`, `enter` and `exit` are all optional.
+//
+// Returns an accumulatable that will begin writing when accumulated.
+function view(target, spread, update, enter, exit) {
+  update = update || id;
+  enter = enter || id;
+  exit = exit || id;
+
+  return accumulatable(function accumulateView(next, initial) {
+    // Prep target.
+    target = enter(target);
+
+    accumulate(spread, function nextWrite(accumulated, item) {
+      // Write to target as side-effect of accumulation.
+      if (item === end) exit(target);
+      else update(target, item);
+
+      // Accumulate. @TODO probably more useful to send target or something.
+      return next(accumulated, item);
+    }, initial);
+  });
+}
+
 // Enumerate over an object's own keys/values, accumulating a value.
 // `initial` defines the initial value for the accumulation. Reference is an
 // optional additional argument that make a common case -- comparing 2
@@ -323,6 +384,9 @@ function contains(set, subset) {
 // Patch state with diff if it would change state.
 // Returns a new patched state object or original object.
 function patch(state, diff) {
+  // If diff is null, we treat it as an empty patch.
+  if (isNullish(diff)) return state;
+
   // If either are not objects, patching is impossible. Return diff as
   // new state.
   if (!isObject(state) || !isObject(diff)) return diff;
@@ -335,71 +399,16 @@ function patch(state, diff) {
   return copy_(copy_({}, state), diff);
 }
 
-// Patch a spread of diffs on to an initial state.
-function patches(diffs, state) {
-  return dropRepeats(reductions(diffs, patch, state || {}));
-}
-
-// Derive diff from current state, previous state and target.
-//
-// State takes a spread of diffs, an initial state, an optional derive function
-// and an optional target which contains state.
-//
-// Returns a new spread of patched/derived states.
-function states(spread, derive, target) {
-  derive = derive || id;
-  return dropRepeats(reductions(spread, function deriveStates(prev, state) {
-    // `prev` is previously calculated/patched state.
-    // Patch state with diff calculated from prev, state, target.
-    //
-    // We need to check that patched state changes something
-    // in prev. The derived state will almost always update state. But that
-    // doesn't mean it actually changes from prev.
-    var derived = patch(state, derive(prev, state, target));
-    return contains(prev, derived) ? prev : derived;
-  }, null));
-}
-
-// Write to a target as a side effect of accumulating `spread`.
-//
-// @TODO I'm currently doing it this way so as not to miss any updates.
-// However, if each write function gets it's own "forked" state stream instead
-// of using hub(), this may not be a problem. Need to test.
-//
-// Returns a new accumulatable spread that contains items from original. Spread
-// will begin writes as soon as it is accumulated.
-function widget(spread, target, test, update, enter, exit) {
-  return accumulatable(function accumulateWidget(next, initial) {
-    update = update || id;
-    enter = enter || id;
-    exit = exit || id;
-    target = enter(target);
-
-    var accumulated = initial;
-
-    accumulate(spread, function nextWidgetWrite(prev, curr) {
-      accumulated = next(accumulated, curr);
-
-      if (curr === end) return exit(target);
-
-      // test function gets previous state, current state and target, returns
-      // true/false. Updates that don't pass the test will be skipped for write.
-      if (test(prev, curr, target)) update(target, curr);
-
-      return curr;
-    }, null);
-  });
-}
-
 // Get value at `key` on `thing`, or null if `thing` is not an object or no
 // value at key.
 function get(thing, key) {
   return thing && !isNullish(thing[key]) ? thing[key] : null;
 }
 
-// Check that both x and y are not null. Convenience for predicates below.
-function hasBoth(x, y) {
-  return !isNullish(x) && !isNullish(y);
+// Get value at key in curr if present, or prev if not.
+// Returns value or null if not found.
+function pick(prev, curr, key) {
+  return get(curr, key) || get(prev, key);
 }
 
 function isUpdated(prev, curr, key) {
@@ -420,7 +429,7 @@ function updated(key) {
 
 function hasTransitioned(prev, curr, key, from, to) {
   // Will return false for initial state cases where `prev` is null.
-  return hasBoth(curr, prev) && (get(prev, key) === from) && (get(curr, key) === to);
+  return (get(prev, key) === from) && (get(curr, key) === to);
 }
 
 // Creates an assertion function that checks if a given
@@ -468,7 +477,7 @@ function currently(key, value) {
 
 function wasPreviously(prev, curr, key, value) {
   // Will return false for initial state cases where `prev` is null.
-  return hasBoth(curr, prev) && get(prev, key) === value;
+  return get(prev, key) === value;
 }
 
 // Creates an assertion function that checks if a given
@@ -667,45 +676,10 @@ function isTap(node) {
   return distanceMoved < 10;
 }
 
-function isDragDown(node) {
-  var touchmove = value(node);
-  if (touchmove.type !== 'touchmove') return false;
-  var touchstart = value(head(node));
-  var distance = touchDistanceY(touchstart.touches[0], touchmove.touches[0]);
-
-  return true;
-}
-
-// Convert every item in a spread into given value.
-function becomes(spread, value) {
-  return reductions(spread, id, value);
-}
-
-function deriveIsRocketbarFocused(prev, curr, target) {
-  var event = value(head(get(curr, 'rocketbar_area_tapped')));
-
-  if (!hasTouches(event)) return { is_mode_rocketbar_focused: false };
-
-  var touch = event.touches[0];
-
-  var test = hasClass(target, 'js-expanded') ?
-      isInRocketbarExpandedHotzone(touch.screenX, touch.screenY, screen.width) :
-      isInRocketBarCollapsedHotzone(touch.screenX, touch.screenY, screen.width);
-
-  return { is_mode_rocketbar_focused: test, rocketbar_area_tapped: null };
-}
-
-function deriveIsModeTaskManager(prev, curr) {
-  return {};
-}
-
-function deriveIsRocketbarExpanded(prev, curr, target) {
-  var isExpanded = (
-    isCurrently(prev, curr, 'is_mode_rocketbar_focused', true) ||
-    isCurrently(prev, curr, 'is_mode_task_manager', true)
-  );
-
-  return { is_rocketbar_expanded: isExpanded };
+function haltEvent_(event) {
+  event.stopPropagation();
+  event.preventDefault();
+  return event;
 }
 
 function app(window) {
@@ -715,7 +689,7 @@ function app(window) {
   var touchends = on(window, 'touchend');
   var touchcancels = on(window, 'touchcancel');
 
-  var rbStarts = filter(touchstarts, isEventRelatedToRocketBar);
+  var rbStarts = filter(touchstarts, withTargetId('rb-rocketbar'));
   // We want all drags that begin in RocketBar and end wherever.
   var rbDrags = drags(rbStarts, touchmoves, touchcancels, touchends);
   var rbDragStops = filter(rbDrags, isTailEventStop);
@@ -723,46 +697,13 @@ function app(window) {
   // Taps on RocketBar are any swipe that covers very little ground.
   var rbTaps = filter(rbDragStops, isTap);
 
-  var rbTapDiffs = map(rbTaps, function (node) {
-    return { rocketbar_area_tapped: node };
-  });
-
-  // Swipes on RocketBar are anything else.
-  // @TODO if ergo of swipable area is feeling bad, can create separate
-  // touchcycle that expands hotzone based on direction of swipe.
-  var rbSwipes = reject(rbDragStops, isTap);
-
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
 
-  // Overlay's diff should include shrinking the RocketBar in cases where not
-  // in Task Manager mode. Need to use sample().
   var rbOverlayTouchstarts = filter(touchstarts, withTargetId('rb-overlay'));
 
-  // Map to states
-
-  // @TODO rocketbar focus and blur is actually a derived state from actions
-  // taken around rocket bar.
-
-  var rbBlurs = becomes(merge([rbCancelTouchstarts, rbOverlayTouchstarts]), {
-    is_mode_rocketbar_focused: false
-  });
-
-  // @TODO loaded URL, scrolling homescreen, etc.
-  var rbShrinking = null;
-
-  // @TODO loading URL, other cases that are independent of modes.
-  var rbExpanding = null;
+  var rbBlurs = merge([rbCancelTouchstarts, rbOverlayTouchstarts]);
 
   var setTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
-
-  var toSetPanel = map(setTouchstarts, function (event) {
-    return { settings_panel_triggered: event };
-  });
-
-  var allDiffs = merge([toSetPanel, rbTapDiffs]);
-
-  // Merge into global state object.
-  var updates = patches(allDiffs);
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
   var rbOverlayEl = document.getElementById('rb-overlay');
@@ -771,43 +712,40 @@ function app(window) {
   var activeSheet = $('.sh-head');
   var settingsPanelEl = document.getElementById('set-settings');
 
-  updates = states(updates, deriveIsRocketbarFocused, rbRocketbarEl);
-  //updates = states(updates, deriveIsModeTaskManager);
-  updates = states(updates, deriveIsRocketbarExpanded);
+  var rbFocusWrites = view({
+    keyboard: keyboardEl,
+    overlay: rbOverlayEl,
+    cancel: rbCancelEl,
+    rocketbar: rbRocketbarEl
+  }, rbTaps, function (els, event) {
+    dom.addClass(els.rocketbar, 'js-expanded');
+    dom.addClass(els.keyboard, 'js-activated');
+    dom.removeClass(els.cancel, 'js-hide');
+    dom.removeClass(els.overlay, 'js-hide');
+  });
 
-  updates = widget(updates, settingsPanelEl, updated('settings_panel_triggered'), function (target, state) {
-    var event = state.settings_panel_triggered;
-    event.preventDefault();
-    event.stopPropagation();
+  var rbBlurWrites = view({
+    keyboard: keyboardEl,
+    overlay: rbOverlayEl,
+    cancel: rbCancelEl,
+    rocketbar: rbRocketbarEl
+  }, rbBlurs, function (els, event) {
+    event = haltEvent_(event);
+    // @TODO collapse per current task manager status.
+    dom.removeClass(els.rocketbar, 'js-expanded');
+    dom.removeClass(els.keyboard, 'js-activated');
+    dom.addClass(els.cancel, 'js-hide');
+    dom.addClass(els.overlay, 'js-hide');
+  });
+
+  var setPanelWrites = view(settingsPanelEl, setTouchstarts, function (target, event) {
+    event = haltEvent_(event);
     dom.toggleClass(target, 'js-hide');
   });
 
-  updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', false), function (target) {
-    dom.removeClass(target, 'js-activated');
-  });
-
-  updates = widget(updates, keyboardEl, changed('is_mode_rocketbar_focused', true), function (target) {
-    dom.addClass(target, 'js-activated');
-  });
-
-  // Animation perf seems slightly faster when cancel is toggled via class
-  // instead of CSS.
-  updates = widget(updates, $('#rb-cancel, #rb-overlay'), changed('is_mode_rocketbar_focused', true), function (target) {
-    dom.removeClass(target, 'js-hide');
-  });
-
-  // Animation perf seems slightly faster when cancel is toggled via class
-  // instead of CSS.
-  updates = widget(updates, $('#rb-cancel, #rb-overlay'), changed('is_mode_rocketbar_focused', false), function (target) {
-    dom.addClass(target, 'js-hide');
-  });
-
-  updates = widget(updates, rbRocketbarEl, updated('is_rocketbar_expanded'), function (target, state) {
-    if(state.is_rocketbar_expanded) dom.addClass(target, 'js-expanded');
-    else dom.removeClass(target, 'js-expanded');
-  });
-
-  return updates;
+  // Merge all accumulatable spreads so they will begin accumulation at same
+  // moment.
+  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites]);
 }
 
 print(app(window));
