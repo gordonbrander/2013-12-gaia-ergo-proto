@@ -334,7 +334,8 @@ function view(target, spread, update, enter, exit) {
       if (item === end) exit(target);
       else update(target, item);
 
-      // Accumulate. @TODO probably more useful to send target or something.
+      // Accumulate. @TODO would be more useful to send back some kind of
+      // transaction record with an id of view.
       return next(accumulated, item);
     }, initial);
   });
