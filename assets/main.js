@@ -258,17 +258,6 @@ function isNullish(thing) {
   return thing == null;
 }
 
-// Invoke a method on each object in a spread, presumably mutating that object
-// causing side-effects.
-//
-// Returns a spread of objects after invocation.
-function invoke(spread, method, args) {
-  return map(spread, function mapInvoke(object) {
-    object[method].apply(object, args);
-    return object;
-  });
-}
-
 function pluck(spread, key) {
   return map(spread, function toPluckedKey(object) {
     return object[key];
