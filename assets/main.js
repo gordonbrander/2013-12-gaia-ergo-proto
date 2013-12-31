@@ -368,39 +368,6 @@ function copy_(into, object) {
   return enumerate(object, set_, into);
 }
 
-// Helper function for `contains`.
-function enumIsMissing(isMissing, key, value, subset, set) {
-  return (isMissing ? true : set[key] !== subset[key]);
-}
-
-// Checks if `set` contains all the values present in `subset`.
-// Returns boolean.
-function contains(set, subset) {
-  // Non-objects can't "contain" anything except themselves.
-  if (!isObject(set) || !isObject(subset)) return false;
-  // Go through all properties of subset, checking if the keys/values match up
-  // in set.
-  return !enumerate(subset, enumIsMissing, false, set);
-}
-
-// Patch state with diff if it would change state.
-// Returns a new patched state object or original object.
-function patch(state, diff) {
-  // If diff is null, we treat it as an empty patch.
-  if (isNullish(diff)) return state;
-
-  // If either are not objects, patching is impossible. Return diff as
-  // new state.
-  if (!isObject(state) || !isObject(diff)) return diff;
-
-  // If diff is already contained in state (all properties in diff are same
-  // in state), return state. No need to change.
-  if (contains(state, diff)) return state;
-
-  // Otherwise, create new state object.
-  return copy_(copy_({}, state), diff);
-}
-
 // Get value at `key` on `thing`, or null if `thing` is not an object or no
 // value at key.
 function get(thing, key) {
