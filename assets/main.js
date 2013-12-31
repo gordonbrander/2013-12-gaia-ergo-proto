@@ -342,21 +342,6 @@ function view(target, spread, update, enter, exit) {
   });
 }
 
-// Enumerate over an object's own keys/values, accumulating a value.
-// `initial` defines the initial value for the accumulation. Reference is an
-// optional additional argument that make a common case -- comparing 2
-// objects -- easy and more efficient.
-function enumerate(object, next, initial, reference) {
-  var accumulated = initial;
-  for (var key in object)
-    // Test for own keys with `hasOwnProperty` instead of `Object.keys` to
-    // avoid garbage creation.
-    //
-    // @TODO need to test this "optimization".
-    if(object.hasOwnProperty(key)) accumulated = next(accumulated, key, object[key], object, reference);
-  return accumulated;
-}
-
 // Get value at `key` on `thing`, or null if `thing` is not an object or no
 // value at key.
 function get(thing, key) {
