@@ -357,17 +357,6 @@ function enumerate(object, next, initial, reference) {
   return accumulated;
 }
 
-// Set `value` on `object` at `key`. Returns `object`.
-function set_(object, key, value) {
-  object[key] = value;
-  return object;
-}
-
-// Shallow-copy `object` by copying all non-empty own properties to `into`.
-function copy_(into, object) {
-  return enumerate(object, set_, into);
-}
-
 // Get value at `key` on `thing`, or null if `thing` is not an object or no
 // value at key.
 function get(thing, key) {
