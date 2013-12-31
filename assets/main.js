@@ -223,6 +223,7 @@ var on = a.on;
 var map = a.map;
 var filter = a.filter;
 var reject = a.reject;
+var hub = a.hub;
 // @TODO it may be that these DOM writers are not that useful. Perhaps a simple
 // collection of DOM functions on spreads will be valuable instead.
 var merge = a.merge;
@@ -478,7 +479,9 @@ function drags(touchstarts, touchmoves, touchcancels, touchends) {
   var events = dropRepeats(merge([touchstarts, touchmoves, touchcancels, touchends]));
 
   // Build all chains.
-  return reject(reductions(events, reduceDrag, null), isNullish);
+  // Use hub to ensure reduceDrag is called once per item.
+  // This keeps it's `before` state correct for chaining.
+  return hub(reject(reductions(events, reduceDrag, null), isNullish));
 }
 
 function touchDistanceY(touch0, touch1) {
@@ -550,7 +553,7 @@ function isTap(node) {
 
 function haltEvent_(event) {
   event.stopPropagation();
-  event.preventDefault();
+  if (!event.defaultPrevented) event.preventDefault();
   return event;
 }
 
@@ -568,6 +571,7 @@ function app(window) {
 
   // Taps on RocketBar are any swipe that covers very little ground.
   var rbTaps = filter(rbDragStops, isTap);
+  var rbSwipes = reject(rbDragStops, isTap);
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
 

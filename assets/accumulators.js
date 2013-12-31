@@ -388,14 +388,17 @@ function accumulators(_, exports) {
       }
 
       accumulate(spread, function nextMerge(_, nested) {
-        // If we have reached the end of the spreads, pass end token
-        // to `forward`.
-        if (nested === end) return forward(null, end);
-
-        // If `nested` item is not end, accumulate it via `forward` and record
-        // that we have opened another spread.
-        open = open + 1;
-        accumulate(nested, forward, null);
+        // If we have reached the end of the spreads, reduce our open count by
+        // one (the spread of spreads is no longer open).
+        if (nested === end) {
+          open = open - 1;
+        }
+        else {
+          // If `nested` item is not end, accumulate it via `forward` and record
+          // that we have opened another spread.
+          open = open + 1;
+          accumulate(nested, forward, null);
+        }
       }, null);
     });
   }
