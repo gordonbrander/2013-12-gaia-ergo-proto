@@ -396,7 +396,7 @@ function reduceDrag(before, event) {
 function drags(touchstarts, touchmoves, touchcancels, touchends) {
   // Merge all touch types into a single stream.
   // @TODO getting duplicate touchends for some reason. Need to investigate.
-  var events = dropRepeats(merge([touchstarts, touchmoves, touchcancels, touchends]));
+  var events = merge([touchstarts, touchmoves, touchcancels, touchends]);
 
   // Build all chains.
   // Use hub to ensure reduceDrag is called once per item.
