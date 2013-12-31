@@ -264,10 +264,6 @@ function pluck(spread, key) {
   });
 }
 
-function isObject(thing) {
-  return thing && typeof thing === 'object';
-}
-
 // Filter items in stream by comparing adjacent items using using function
 // `assert` to compare.
 //
