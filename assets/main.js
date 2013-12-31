@@ -407,12 +407,6 @@ function get(thing, key) {
   return thing && !isNullish(thing[key]) ? thing[key] : null;
 }
 
-// Get value at key in curr if present, or prev if not.
-// Returns value or null if not found.
-function pick(prev, curr, key) {
-  return get(curr, key) || get(prev, key);
-}
-
 // Check if an event is an ending event (cancel or end).
 function isEventStop(event) {
   return event && (event.type === 'touchend' || event.type === 'touchcancel');
