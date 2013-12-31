@@ -334,9 +334,9 @@ function view(target, spread, update, enter, exit) {
       if (item === end) exit(target);
       else update(target, item);
 
-      // Accumulate. @TODO would be more useful to send back some kind of
-      // transaction record with an id of view.
-      return next(accumulated, item);
+      // Accumulate with updated target. Note that this is simply a reference
+      // to `target`. Target will mutate and can't be counted on as a value.
+      return next(accumulated, target);
     }, initial);
   });
 }
@@ -575,14 +575,17 @@ function app(window) {
 
   var rbBlurs = merge([rbCancelTouchstarts, rbOverlayTouchstarts]);
 
-  var setTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
+  var setIconTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
+  var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
+  var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
   var rbOverlayEl = document.getElementById('rb-overlay');
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
   var rbCancelEl = document.getElementById('rb-cancel');
   var activeSheet = $('.sh-head');
-  var settingsPanelEl = document.getElementById('set-settings');
+  var setPanelEl = document.getElementById('set-settings');
+  var setOverlayEl = document.getElementById('set-overlay');
 
   var rbFocusWrites = view({
     keyboard: keyboardEl,
@@ -610,9 +613,25 @@ function app(window) {
     dom.addClass(els.overlay, 'js-hide');
   });
 
-  var setPanelWrites = view(settingsPanelEl, setTouchstarts, function (target, event) {
+  function updateSetPanelClose(target, event) {
+    dom.addClass(target.panel, 'js-hide');
+    dom.addClass(target.overlay, 'js-hide');
+  }
+
+  function updateSetPanelOpen(target, event) {
+    dom.removeClass(target.panel, 'js-hide');
+    dom.removeClass(target.overlay, 'js-hide');
+  }
+
+  var setPanelWrites = view({
+    panel: setPanelEl,
+    overlay: setOverlayEl
+  }, setEvents, function (target, event) {
     event = haltEvent_(event);
-    dom.toggleClass(target, 'js-hide');
+
+    if (event.target.id === 'set-overlay') updateSetPanelClose(target, event);
+    else if (!dom.hasClass(target.panel, 'js-hide')) updateSetPanelClose(target, event);
+    else updateSetPanelOpen(target, event);
   });
 
   // Merge all accumulatable spreads so they will begin accumulation at same

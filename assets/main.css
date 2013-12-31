@@ -85,6 +85,16 @@ video {
   transform: translateY(0);
 }
 
+/* General class for overlays */
+.sys-overlay {
+  background: rgba(0, 0, 0, .5);
+  bottom: 0;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
 /* RocketBar .rb-
 ----------------------------------------------------------------------------- */
 
@@ -133,13 +143,7 @@ video {
   right: 5px;
 }
 
-.rb-overlay {
-  background: rgba(0, 0, 0, .5);
-  bottom: 0;
-  left: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
+#rb-overlay {
   z-index: 500;
 }
 
@@ -156,6 +160,10 @@ video {
   top: 20px;
   width: 320px;
   z-index: 400;
+}
+
+#set-overlay {
+  z-index: 399;
 }
 
 /* Launcher homescreen .hs-
