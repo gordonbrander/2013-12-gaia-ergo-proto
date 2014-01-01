@@ -430,6 +430,7 @@ var id = a.id;
 
 var helpers = require('helpers');
 var print = helpers.print;
+var go = helpers.go;
 
 var dom = require('dom');
 var $ = dom.$;
@@ -687,9 +688,11 @@ function app(window) {
     else updateSetPanelOpen(els, event);
   });
 
-  var toHomeWrites = write({}, bottomSwipes, function (els, node) {
+  var toHomeWrites = write({
+    manager: tmEl
+  }, bottomSwipes, function (els, node) {
     event = haltEvent_(value(node));
-    scaleOut(tmEl, 300, 'ease-in');
+    go(scaleOut(els.manager, 600, 'ease-in'));
   });
 
   // Merge all accumulatable spreads so they will begin accumulation at same
