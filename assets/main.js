@@ -218,6 +218,63 @@ define('linked-list', function (require, exports) {
   return exports;
 });
 
+define('animation', function (require, exports) {
+  var a = require('accumulators');
+  var on = a.on;
+  var accumulatable = a.accumulatable;
+  var accumulate = a.accumulate;
+  var merge = a.merge;
+
+  function setAnimation_(element, name, duration, easing, iterations) {
+    // Set up animation styles.
+    element.style.animationName = name;
+    element.style.animationDuration = duration + 'ms';
+    element.style.animationIterationCount = (iterations === Infinity) ? 'infinite' : iterations;
+    element.style.animationEasing = easing;
+    return element;
+  }
+
+  function onAnimationEvents(element) {
+    return accumulatable(function accumulateAnimationEvents(next, initial) {
+      var events = merge([
+        on(element, 'animationstart'),
+        on(element, 'animationend'),
+        on(element, 'animationiteration')
+      ]);
+
+      accumulate(events, function nextAnimationEvent(accumulated, event) {
+        accumulated = next(accumulated, event);
+        // If event is animation end, end spread. This will also clean up event
+        // listeners on element.
+        return (event.type === 'animationend') ? next(accumulated, end) : accumulated;
+      }, initial);
+    });
+  }
+
+  // Animate an element using a CSS keyframe animation. Returns an accumulatable
+  // spread good for the start, update and end events of the animation.
+  function animation(element, name, duration, easing, iterations) {
+    // Default number of iterations is 1.
+    iterations = iterations > 1 ? iterations : 1;
+    duration = duration > 0 ? duration : 0;
+    easing = easing || 'linear';
+
+    return accumulatable(function accumulateAnimation(next, initial) {
+      // Create spread of animation events.
+      var animation = onAnimationEvents(element);
+
+      // Set animation on element, kicking it off.
+      setAnimation_(element, name, duration, easing, iterations);
+
+      // Accumulate spread of animation events.
+      accumulate(animation, next, initial);
+    });
+  }
+  exports.animation = animation;
+
+  return exports;
+});
+
 var a = require('accumulators');
 var on = a.on;
 var map = a.map;
@@ -250,6 +307,8 @@ var node = list.node;
 var find = list.find;
 var head = list.head;
 var value = list.value;
+
+var animation = require('animation').animation;
 
 function print(spread) {
   accumulate(spread, function nextPrint(_, item) {
@@ -471,7 +530,7 @@ function app(window) {
   var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
 
   var bottomEdgeTouchstarts = filter(touchstarts, isEventInScreenBottomEdge);
-  
+
   var bottomDrags = drags(bottomEdgeTouchstarts, touchmoves, touchcancels, touchends);
   var bottomSwipes = reject(bottomDrags, isTap);
 
