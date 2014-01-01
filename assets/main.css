@@ -198,7 +198,7 @@ video {
   height: 460px;
   overflow: auto;
   position: absolute;
-  top: 20px;
+  top: 0;
   transition: 200ms transform linear;
   width: 320px;
   z-index: 300;
