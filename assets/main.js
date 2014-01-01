@@ -450,7 +450,7 @@ function isEventRelatedToRocketBar(event) {
 
 // Given x/y coord, determine if point is within screen bottom touch zone.
 // @TODO take y direction into account when calculating hotzone.
-function isInscreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
+function isInScreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
   return (
     (inRange(x, 0, screenW) && inRange(y, screenH - 20, screenH))
   );
