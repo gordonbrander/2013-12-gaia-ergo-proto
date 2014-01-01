@@ -352,6 +352,66 @@ define('animation', function (require, exports) {
   return exports;
 });
 
+define('helpers', function (require, exports) {
+  var a = require('accumulators');
+  var accumulate = a.accumulate;
+  var id = a.id;
+
+  // Cause a spread to begin accumulation. Log each item along the way.
+  // Returns no value.
+  function print(spread) {
+    accumulate(spread, function nextPrint(_, item) {
+      console.log(item);
+    });
+  }
+  exports.print = print;
+
+  // Cause a spread to begin accumulation. Returns no value.
+  function go(spread) {
+    accumulate(spread, id);
+  }
+  exports.go = go;
+
+  function pluck(spread, key) {
+    return map(spread, function toPluckedKey(object) {
+      return object[key];
+    });
+  }
+  exports.pluck = pluck;
+
+  // Filter items in stream by comparing adjacent items using using function
+  // `assert` to compare.
+  //
+  // Returns a new spread of items that pass `assert`.
+  function asserts(spread, assert) {
+    return accumulatable(function accumulateFilterAdjacent(next, initial) {
+      var accumulated = initial;
+      accumulate(spread, function nextAssert(left, right) {
+        if (right === end) next(accumulated, end);
+        else if (assert(left, right)) accumulated = next(accumulated, right);
+
+        // Right becomes new left for nextAssert.
+        return right;
+      }, null);
+    });
+  }
+  exports.asserts = asserts;
+
+  // Are 2 things not equal?
+  function isDifferent(thing0, thing1) {
+    return thing0 !== thing1;
+  }
+  exports.isDifferent = isDifferent;
+
+  // Drop adjacent repeats from spread.
+  function dropRepeats(spread) {
+    return asserts(spread, isDifferent);
+  }
+  exports.dropRepeats = dropRepeats;
+
+  return exports;
+});
+
 var a = require('accumulators');
 var on = a.on;
 var map = a.map;
@@ -367,6 +427,9 @@ var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
 var id = a.id;
+
+var helpers = require('helpers');
+var print = helpers.print;
 
 var dom = require('dom');
 var $ = dom.$;
@@ -391,47 +454,8 @@ var anim = require('animation');
 var animation = anim.animation;
 var scaleOut = anim.scaleOut;
 
-function print(spread) {
-  accumulate(spread, function nextPrint(_, item) {
-    console.log(item);
-  });
-}
-
 function isNullish(thing) {
   return thing == null;
-}
-
-function pluck(spread, key) {
-  return map(spread, function toPluckedKey(object) {
-    return object[key];
-  });
-}
-
-// Filter items in stream by comparing adjacent items using using function
-// `assert` to compare.
-//
-// Returns a new spread of items that pass `assert`.
-function asserts(spread, assert) {
-  return accumulatable(function accumulateFilterAdjacent(next, initial) {
-    var accumulated = initial;
-    accumulate(spread, function nextAssert(left, right) {
-      if (right === end) next(accumulated, end);
-      else if (assert(left, right)) accumulated = next(accumulated, right);
-
-      // Right becomes new left for nextAssert.
-      return right;
-    }, null);
-  });
-}
-
-// Are 2 things not equal?
-function isDifferent(thing0, thing1) {
-  return thing0 !== thing1;
-}
-
-// Drop adjacent repeats from spread.
-function dropRepeats(spread) {
-  return asserts(spread, isDifferent);
 }
 
 // Check if an event is an ending event (cancel or end).
@@ -587,6 +611,7 @@ function app(window) {
   var rbOverlayEl = document.getElementById('rb-overlay');
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
   var rbCancelEl = document.getElementById('rb-cancel');
+  var tmEl = document.getElementById('tm-task-manager');
   var activeSheetEl = document.getElementById('sh-sheet-000000');
   var setPanelEl = document.getElementById('set-settings');
   var setOverlayEl = document.getElementById('set-overlay');
@@ -664,6 +689,7 @@ function app(window) {
 
   var toHomeWrites = write({}, bottomSwipes, function (els, node) {
     event = haltEvent_(value(node));
+    scaleOut(tmEl, 300, 'ease-in');
   });
 
   // Merge all accumulatable spreads so they will begin accumulation at same
