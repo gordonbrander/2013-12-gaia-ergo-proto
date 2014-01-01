@@ -218,12 +218,63 @@ define('linked-list', function (require, exports) {
   return exports;
 });
 
+define('view', function (require, exports) {
+  var a = require('accumulators');
+  var accumulatable = a.accumulatable;
+  var end = a.end;
+  var accumulate = a.accumulate;
+
+  // Write to a target as a side-effect of accumulating `spread`.
+  //
+  // `enter(target)` must return a value representing the target to be written
+  // to. This gives you a chance to create the target from a value, or modify
+  // the target when writing begins.
+  //
+  // `update(target, value)` describes how to write to the target. It is not
+  // required to return a value.
+  //
+  // `exit(target)` allows you to destroy or modify the target when spread has
+  // ended. It is not required to return a value.
+  //
+  // `update`, `enter` and `exit` are all optional.
+  //
+  // Returns an accumulatable that will begin writing when accumulated.
+  //
+  // @TODO it would probably behoove composability to make view a typical
+  // accumulator, allowing it to end sources as well as consume them.
+  function view(target, spread, update, enter, exit) {
+    update = update || id;
+    enter = enter || id;
+    exit = exit || id;
+
+    return accumulatable(function accumulateView(next, initial) {
+      // Prep target.
+      target = enter(target);
+
+      accumulate(spread, function nextWrite(accumulated, item) {
+        if (item === end) exit(target);
+        else update(target, item);
+        // Accumulate with updated target. Note that this is simply a reference
+        // to `target`. Target will mutate and can't be counted on as a value.
+        return next(accumulated, item);
+      }, initial);
+    });
+  }
+
+  exports.view = view;
+
+  return exports;
+});
+
 define('animation', function (require, exports) {
   var a = require('accumulators');
   var on = a.on;
   var accumulatable = a.accumulatable;
   var accumulate = a.accumulate;
   var merge = a.merge;
+  var end = a.end;
+
+  var view = require('view').view;
 
   function setAnimation_(element, name, duration, easing, iterations) {
     // Set up animation styles.
@@ -231,6 +282,15 @@ define('animation', function (require, exports) {
     element.style.animationDuration = duration + 'ms';
     element.style.animationIterationCount = (iterations === Infinity) ? 'infinite' : iterations;
     element.style.animationEasing = easing;
+    return element;
+  }
+
+  function exitAnimation_(element) {
+    // Tear down animation styles.
+    element.style.animationName = 'none';
+    element.style.animationDuration = '0ms';
+    element.style.animationIterationCount = 1;
+    element.style.animationEasing = 'linear';
     return element;
   }
 
@@ -259,18 +319,35 @@ define('animation', function (require, exports) {
     duration = duration > 0 ? duration : 0;
     easing = easing || 'linear';
 
-    return accumulatable(function accumulateAnimation(next, initial) {
-      // Create spread of animation events.
-      var animation = onAnimationEvents(element);
+    // create spread of animation events.
+    var anim = onAnimationEvents(element);
 
+    function enterAnimation_(element) {
       // Set animation on element, kicking it off.
-      setAnimation_(element, name, duration, easing, iterations);
+      return setAnimation_(element, name, duration, easing, iterations);
+    }
 
-      // Accumulate spread of animation events.
-      accumulate(animation, next, initial);
-    });
+    return view(element, anim, null, enterAnimation_, exitAnimation_);
   }
   exports.animation = animation;
+
+  function buildInEnter(target) {
+    target.style.display = 'block';
+    return target;
+  }
+  exports.buildInEnter = buildInEnter;
+
+  function buildOutExit(target) {
+    target.style.display = 'none';
+    return target;
+  }
+  exports.buildOutExit = buildOutExit;
+
+  function scaleOut(element, duration, easing) {
+    var anim = animation(element, 'scale-out', duration, easing);
+    return view(element, anim, null, null, buildOutExit);
+  }
+  exports.scaleOut = scaleOut;
 
   return exports;
 });
@@ -308,7 +385,11 @@ var find = list.find;
 var head = list.head;
 var value = list.value;
 
-var animation = require('animation').animation;
+var view = require('view').view;
+
+var anim = require('animation');
+var animation = anim.animation;
+var scaleOut = anim.scaleOut;
 
 function print(spread) {
   accumulate(spread, function nextPrint(_, item) {
@@ -351,42 +432,6 @@ function isDifferent(thing0, thing1) {
 // Drop adjacent repeats from spread.
 function dropRepeats(spread) {
   return asserts(spread, isDifferent);
-}
-
-// Write to a target as a side-effect of accumulating `spread`.
-//
-// `enter(target)` must return a value representing the target to be written
-// to. This gives you a chance to create the target from a value, or modify
-// the target when writing begins.
-//
-// `update(target, value)` describes how to write to the target. It is not
-// required to return a value.
-//
-// `exit(target)` allows you to destroy or modify the target when spread has
-// ended. It is not required to return a value.
-//
-// `update`, `enter` and `exit` are all optional.
-//
-// Returns an accumulatable that will begin writing when accumulated.
-function view(target, spread, update, enter, exit) {
-  update = update || id;
-  enter = enter || id;
-  exit = exit || id;
-
-  return accumulatable(function accumulateView(next, initial) {
-    // Prep target.
-    target = enter(target);
-
-    accumulate(spread, function nextWrite(accumulated, item) {
-      // Write to target as side-effect of accumulation.
-      if (item === end) exit(target);
-      else update(target, item);
-
-      // Accumulate with updated target. Note that this is simply a reference
-      // to `target`. Target will mutate and can't be counted on as a value.
-      return next(accumulated, target);
-    }, initial);
-  });
 }
 
 // Check if an event is an ending event (cancel or end).
