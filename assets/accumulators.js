@@ -388,14 +388,17 @@ function accumulators(_, exports) {
       }
 
       accumulate(spread, function nextMerge(_, nested) {
-        // If we have reached the end of the spreads, pass end token
-        // to `forward`.
-        if (nested === end) return forward(null, end);
-
-        // If `nested` item is not end, accumulate it via `forward` and record
-        // that we have opened another spread.
-        open = open + 1;
-        accumulate(nested, forward, null);
+        // If we have reached the end of the spreads, reduce our open count by
+        // one (the spread of spreads is no longer open).
+        if (nested === end) {
+          open = open - 1;
+        }
+        else {
+          // If `nested` item is not end, accumulate it via `forward` and record
+          // that we have opened another spread.
+          open = open + 1;
+          accumulate(nested, forward, null);
+        }
       }, null);
     });
   }
@@ -591,162 +594,6 @@ function accumulators(_, exports) {
 
   // Browser helpers: animation, DOM events, etc
   // -------------------------------------------
-
-
-  var __slice__ = Array.prototype.slice;
-  function slice(arraylike, start, end) {
-    return __slice__.call(arraylike, start, end);
-  }
-  exports.slice = slice;
-
-
-  // Check if a `thing` is an object with an own `length` property. This is the
-  // closest proxy to knowing if an object is arraylike.
-  function hasLength(thing) {
-    return thing && thing.hasOwnProperty && thing.hasOwnProperty('length');
-  }
-
-
-  // Get a real array of elements. `element` argument can be a single element,
-  // an arraylike list of elements, or a selector to be queried.
-  function $(element) {
-    // If `element` is actually a selector string, query for elements, then
-    // slice nodeList into true array.
-    if (typeof element === 'string')
-      return slice(document.querySelectorAll(element));
-
-    // If `element` has a length property (it's arraylike), we slice it.
-    // This covers cases where you may want to pass a nodeList to `$`.
-    if (hasLength(element)) return slice(element);
-
-    // Otherwise, we can assume element is just an element. Elements are
-    // accumulatable, so we can just return it.
-    return element;
-  }
-  exports.$ = $;
-
-
-  // Internal higher-order function that expidites creating "setters" that
-  // can operate on multiple items at once. Pass a `setOn` function that looks
-  // like:
-  //
-  //     function setThingOn(value, target) { ... return value; }
-  //
-  // Where `target` is the thing being mutated. Make sure to return `value`!
-  function multisetter(setOn) {
-    var nextSetOn = handleEnd(setOn);
-
-    function multiset(things, value) {
-      accumulate(things, nextSetOn, value);
-      return things;
-    }
-
-    return multiset;
-  }
-
-
-  // Set `innerHtml` on multiple elements.
-  var setHtml = multisetter(function setHtmlOn(html, element) {
-    element.innerHTML = html;
-    return html;
-  });
-  exports.setHtml = setHtml;
-
-
-  // Create writer for settng `innerHtml`.
-  var html = writer(setHtml, $);
-  exports.html = html;
-
-
-  var setText = multisetter(function setTextOn(text, element) {
-    element.textContent = text;
-    return text;
-  });
-  exports.setText = setText;
-
-
-  // React to a spread of text strings, writing text to a spread of elements.
-  // Text is sent via a spread. For example, in pseudo code:
-  //
-  //     var textSpread = <"Good morning!", "Good afternoon!", "Good night!">;
-  //     text('.my-div', textSpread);
-  //
-  // This would change the text of `.my-div` elements to "Good morning!" when
-  // that value is sent in the spread. As "Good afternoon!" and "Good night!"
-  // are sent, the element's text will automatically update 
-  var text = writer(setText, $);
-  exports.text = text;
-
-
-  // Set/remove a single attribute on a single element.
-  function setSingleAttr(element, key, value) {
-    // If value is nullish, remove the attribute.
-    if (value == null) element.removeAttribute(key);
-    // Otherwise, set the attribute.
-    else element.setAttribute(key, value);
-    return element;
-  }
-
-
-  var setAttr = multisetter(function setAttrOn(attr, element) {
-    for (var key in attr) setSingleAttr(element, key, attr[key]);
-    return attr;
-  });
-  exports.setAttr = setAttr;
-
-
-  // React to a spread of attributes, writing attributes to a spread of
-  // elements. Attributes are sent via spread as objects, where key is the
-  // attribute key and value is the attribute value. For example:
-  //
-  //     var attrSpread = <{ checked: 'checked' }, { 'checked': null }>;
-  //     attr('.my-checkbox', attrSpread);
-  //
-  // Would add `checked="checked"` to any `.my-checkbox` elements when the
-  // first object is sent in the spread. When the second object is sent, the
-  // `checked` attribute would be removed.
-  var attr = writer(setAttr, $);
-  exports.attr = attr;
-
-
-  var setAddClass = multisetter(function addClassTo(elementClass, element) {
-    var prevElementClass = element.className;
-    if (prevElementClass.indexOf(elementClass) === -1)
-      element.className = prevElementClass + ' ' + elementClass;
-    return elementClass;
-  });
-  exports.setAddClass = setAddClass;
-
-
-  var setRemoveClass = multisetter(function removeClassFrom(elementClass, element) {
-    var old = element.className;
-    var pattern = RegExp(elementClass, 'g');
-    element.className = old.replace(pattern, '');
-    return elementClass;
-  });
-  exports.setRemoveClass = setRemoveClass;
-
-
-  // Add a class from an element every time a value appears in
-  // `trigger` spread.
-  function addClass(target, trigger, className) {
-    function updateAddClass(target) {
-      return setAddClass(target, className);
-    }
-    write(target, trigger, updateAddClass);
-  }
-  exports.addClass = addClass;
-
-
-  // Remove a class from an element every time a value appears in
-  // `trigger` spread.
-  function removeClass(target, trigger, className) {
-    function updateRemoveClass(target) {
-      return setRemoveClass(target, className);
-    }
-    write(target, trigger, updateRemoveClass);
-  }
-  exports.removeClass = removeClass;
 
 
   // A wrapper for [requestAnimationFrame][raf], patching up browser support and
