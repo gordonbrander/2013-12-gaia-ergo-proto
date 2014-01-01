@@ -507,7 +507,7 @@ function app(window) {
   var rbOverlayEl = document.getElementById('rb-overlay');
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
   var rbCancelEl = document.getElementById('rb-cancel');
-  var activeSheet = $('.sh-head');
+  var activeSheetEl = document.getElementById('sh-sheet-000000');
   var setPanelEl = document.getElementById('set-settings');
   var setOverlayEl = document.getElementById('set-overlay');
 
@@ -537,6 +537,12 @@ function app(window) {
     dom.addClass(els.overlay, 'js-hide');
   });
 
+  var toTmWrites = view({
+    head: activeSheetEl
+  }, rbSwipes, function (target, event) {
+    dom.addClass(target.head, 'sh-scaled');
+  });
+
   function updateSetPanelClose(target, event) {
     dom.addClass(target.panel, 'js-hide');
     dom.addClass(target.overlay, 'js-hide');
@@ -560,7 +566,7 @@ function app(window) {
 
   // Merge all accumulatable spreads so they will begin accumulation at same
   // moment.
-  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites]);
+  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites, toTmWrites]);
 }
 
 print(app(window));
