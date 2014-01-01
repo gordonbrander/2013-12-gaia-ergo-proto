@@ -208,6 +208,21 @@ video {
   transform: scale(.8);
 }
 
+/* Transparent cover over sheet that is hidden when zoomed in. */
+.sh-cover {
+  display: none;
+  bottom: 0;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+/* Cover sheet when scaled (task manager mode). */
+.sh-scaled > .sh-cover {
+  display: block;
+}
+
 /* not-notifications .not-
 ----------------------------------------------------------------------------- */
 

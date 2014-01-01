@@ -243,6 +243,7 @@ var hasTouches = dom.hasTouches;
 var withTargetId = dom.withTargetId;
 var withId = dom.withId;
 var withClass = dom.withClass;
+var withTargetClass = dom.withTargetClass;
 
 var list = require('linked-list');
 var node = list.node;
@@ -462,6 +463,10 @@ function app(window) {
   var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
   var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
 
+  // @TODO this obviously only works when we only have one sheet in task
+  // manager.
+  var headSheetTouchstarts = filter(touchstarts, withTargetClass('sh-cover'));
+
   var keyboardEl = document.getElementById('sys-fake-keyboard');
   var rbOverlayEl = document.getElementById('rb-overlay');
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
@@ -510,6 +515,16 @@ function app(window) {
     addClass(els.head, 'sh-scaled');
   });
 
+  var fromTmToSheetWrites = view({
+    body: bodyEl,
+    head: activeSheetEl,
+    rocketbar: rbRocketbarEl
+  }, headSheetTouchstarts, function (els, event) {
+    removeClass(els.body, 'tm-mode');
+    removeClass(els.head, 'sh-scaled');
+    removeClass(els.rocketbar, 'js-expanded');
+  });
+
   function updateSetPanelClose(els, event) {
     addClass(els.panel, 'js-hide');
     addClass(els.overlay, 'js-hide');
@@ -533,7 +548,7 @@ function app(window) {
 
   // Merge all accumulatable spreads so they will begin accumulation at same
   // moment.
-  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites, toTmWrites]);
+  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites, toTmWrites, fromTmToSheetWrites]);
 }
 
 print(app(window));
