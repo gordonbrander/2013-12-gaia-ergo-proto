@@ -408,10 +408,17 @@ function inRange(number, less, more) {
 
 // Given x/y coord, determine if point is within screen bottom touch zone.
 // @TODO take y direction into account when calculating hotzone.
-function isInScreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
+function isInScreenBottomEdge(x, y, screenW, screenH) {
   return (
     (inRange(x, 0, screenW) && inRange(y, screenH - 20, screenH))
   );
+}
+
+function isEventInScreenBottomEdge(event) {
+  var firstTouch = event.touches[0];
+  var x = firstTouch.screenX;
+  var y = firstTouch.screenY;
+  return isInScreenBottomEdge(x, y, screen.width, screen.height);
 }
 
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
@@ -428,7 +435,7 @@ function isTap(node) {
   );
 
   // Filter out touch cycle that moved more than 20px.
-  return distanceMoved < 10;
+  return Math.abs(distanceMoved) < 5;
 }
 
 function haltEvent_(event) {
@@ -462,6 +469,11 @@ function app(window) {
   var setIconTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
   var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
   var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
+
+  var bottomEdgeTouchstarts = filter(touchstarts, isEventInScreenBottomEdge);
+  
+  var bottomDrags = drags(bottomEdgeTouchstarts, touchmoves, touchcancels, touchends);
+  var bottomSwipes = reject(bottomDrags, isTap);
 
   // @TODO this obviously only works when we only have one sheet in task
   // manager.
@@ -546,9 +558,13 @@ function app(window) {
     else updateSetPanelOpen(els, event);
   });
 
+  var toHomeWrites = view({}, bottomSwipes, function (els, node) {
+    event = haltEvent_(value(node));
+  });
+
   // Merge all accumulatable spreads so they will begin accumulation at same
   // moment.
-  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites, toTmWrites, fromTmToSheetWrites]);
+  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites, toTmWrites, fromTmToSheetWrites, toHomeWrites]);
 }
 
 print(app(window));
