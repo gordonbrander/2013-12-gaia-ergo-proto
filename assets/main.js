@@ -331,23 +331,36 @@ define('animation', function (require, exports) {
   }
   exports.animation = animation;
 
-  function buildInEnter(target) {
-    target.style.display = 'block';
-    return target;
+  function build(name, enter, exit) {
+    function animateBuild(element, duration, easing) {
+      var anim = animation(element, name, duration, easing);
+      return write(element, anim, null, enter, exit);
+    }
+    return animateBuild;
   }
-  exports.buildInEnter = buildInEnter;
+  exports.build = build;
 
-  function buildOutExit(target) {
+  function exitScaleOut(target) {
     target.style.display = 'none';
     return target;
   }
-  exports.buildOutExit = buildOutExit;
 
-  function scaleOut(element, duration, easing) {
-    var anim = animation(element, 'scale-out', duration, easing);
-    return write(element, anim, null, null, buildOutExit);
-  }
+  var scaleOut = build('scale-out', null, exitScaleOut);
   exports.scaleOut = scaleOut;
+
+  function enterFadeIn(element) {
+    element.style.display = 'block';
+    element.style.opacity = '0';
+    return element;
+  }
+
+  function exitFadeIn(element) {
+    element.style.opacity = '1';
+    return element;
+  }
+
+  var fadeIn = build('fade-in', enterFadeIn, exitFadeIn);
+  exports.fadeIn = fadeIn;
 
   return exports;
 });
@@ -421,6 +434,7 @@ var hub = a.hub;
 // @TODO it may be that these DOM writers are not that useful. Perhaps a simple
 // collection of DOM functions on spreads will be valuable instead.
 var merge = a.merge;
+var concat = a.concat;
 var reductions = a.reductions;
 var accumulatable = a.accumulatable;
 var accumulate = a.accumulate;
@@ -454,6 +468,7 @@ var write = require('view').write;
 var anim = require('animation');
 var animation = anim.animation;
 var scaleOut = anim.scaleOut;
+var fadeIn = anim.fadeIn;
 
 function isNullish(thing) {
   return thing == null;
@@ -616,6 +631,7 @@ function app(window) {
   var setPanelEl = document.getElementById('set-settings');
   var setOverlayEl = document.getElementById('set-overlay');
   var bodyEl = document.getElementById('sys-screen');
+  var hsEl = document.getElementById('hs-homescreen');
 
   var rbFocusWrites = write({
     keyboard: keyboardEl,
@@ -690,6 +706,7 @@ function app(window) {
   });
 
   var toHomeWrites = write({
+    home: hsEl,
     manager: tmEl,
     touchstart: null,
     keyboard: keyboardEl,
@@ -702,7 +719,12 @@ function app(window) {
     if (touchstart === state.touchstart) return;
 
     haltEvent_(value(node));
-    go(scaleOut(state.manager, 600, 'ease-in'));
+
+    go(concat([
+      scaleOut(state.manager, 400, 'ease-in'),
+      fadeIn(state.home, 800, 'ease-out')
+    ]));
+
     state.touchstart = touchstart;
     updateBlurRocketbar(state, value(node));
   });
