@@ -240,14 +240,14 @@ define('view', function (require, exports) {
   //
   // Returns an accumulatable that will begin writing when accumulated.
   //
-  // @TODO it would probably behoove composability to make view a typical
+  // @TODO it would probably behoove composability to make write a typical
   // accumulator, allowing it to end sources as well as consume them.
-  function view(target, spread, update, enter, exit) {
+  function write(target, spread, update, enter, exit) {
     update = update || id;
     enter = enter || id;
     exit = exit || id;
 
-    return accumulatable(function accumulateView(next, initial) {
+    return accumulatable(function accumulatewrite(next, initial) {
       // Prep target.
       target = enter(target);
 
@@ -261,7 +261,7 @@ define('view', function (require, exports) {
     });
   }
 
-  exports.view = view;
+  exports.write = write;
 
   return exports;
 });
@@ -274,7 +274,7 @@ define('animation', function (require, exports) {
   var merge = a.merge;
   var end = a.end;
 
-  var view = require('view').view;
+  var write = require('view').write;
 
   function setAnimation_(element, name, duration, easing, iterations) {
     // Set up animation styles.
@@ -327,7 +327,7 @@ define('animation', function (require, exports) {
       return setAnimation_(element, name, duration, easing, iterations);
     }
 
-    return view(element, anim, null, enterAnimation_, exitAnimation_);
+    return write(element, anim, null, enterAnimation_, exitAnimation_);
   }
   exports.animation = animation;
 
@@ -345,7 +345,7 @@ define('animation', function (require, exports) {
 
   function scaleOut(element, duration, easing) {
     var anim = animation(element, 'scale-out', duration, easing);
-    return view(element, anim, null, null, buildOutExit);
+    return write(element, anim, null, null, buildOutExit);
   }
   exports.scaleOut = scaleOut;
 
@@ -385,7 +385,7 @@ var find = list.find;
 var head = list.head;
 var value = list.value;
 
-var view = require('view').view;
+var write = require('view').write;
 
 var anim = require('animation');
 var animation = anim.animation;
@@ -592,7 +592,7 @@ function app(window) {
   var setOverlayEl = document.getElementById('set-overlay');
   var bodyEl = document.getElementById('sys-screen');
 
-  var rbFocusWrites = view({
+  var rbFocusWrites = write({
     keyboard: keyboardEl,
     overlay: rbOverlayEl,
     cancel: rbCancelEl,
@@ -604,7 +604,7 @@ function app(window) {
     removeClass(els.overlay, 'js-hide');
   });
 
-  var rbBlurWrites = view({
+  var rbBlurWrites = write({
     keyboard: keyboardEl,
     overlay: rbOverlayEl,
     cancel: rbCancelEl,
@@ -621,7 +621,7 @@ function app(window) {
       removeClass(els.rocketbar, 'js-expanded');
   });
 
-  var toTmWrites = view({
+  var toTmWrites = write({
     body: bodyEl,
     head: activeSheetEl,
     rocketbar: rbRocketbarEl
@@ -631,7 +631,7 @@ function app(window) {
     addClass(els.head, 'sh-scaled');
   });
 
-  var fromTmToSheetWrites = view({
+  var fromTmToSheetWrites = write({
     body: bodyEl,
     head: activeSheetEl,
     rocketbar: rbRocketbarEl
@@ -651,7 +651,7 @@ function app(window) {
     removeClass(els.overlay, 'js-hide');
   }
 
-  var setPanelWrites = view({
+  var setPanelWrites = write({
     panel: setPanelEl,
     overlay: setOverlayEl
   }, setEvents, function (els, event) {
@@ -662,7 +662,7 @@ function app(window) {
     else updateSetPanelOpen(els, event);
   });
 
-  var toHomeWrites = view({}, bottomSwipes, function (els, node) {
+  var toHomeWrites = write({}, bottomSwipes, function (els, node) {
     event = haltEvent_(value(node));
   });
 
