@@ -416,38 +416,6 @@ function inRange(number, less, more) {
   return (number >= less) && (number <= more);
 }
 
-// Given an x/y coord, determine if point is within the RocketBar's touch zone.
-// This is an irregularly shaped hot zone.
-// @TODO take y direction into account when calculating hotzone.
-// @TODO need a second function to handle RocketBar in expanded mode.
-function isInRocketBarCollapsedHotzone(x, y, screenW) {
-  return (
-    // Inside of the status bar box
-    (inRange(x, 0, screenW - 100) && inRange(y, 0, 20)) ||
-    // The "extra" fuzzy space below that doesn't overlap with button area of
-    // app header.
-    (inRange(x, 40, screenW - 100) && inRange(y, 20, 40))
-  );
-}
-
-// @TODO ok, this is the idea: we use this in initial patch stage to narrow
-// down the swipes. But maybe it's actually more useful to do this at the
-// membrane level?
-function isInRocketbarExpandedHotzone(x, y, screenW) {
-  return inRange(x, 0, screenW) && inRange(y, 0, 50);
-}
-
-// We capture all events possibly related to the RocketBar, then tease apart
-// what we're actually interested in at membrane level.
-function isEventRelatedToRocketBar(event) {
-  var firstTouch = event.touches[0];
-  return isInRocketbarExpandedHotzone(
-    firstTouch.screenX,
-    firstTouch.screenY,
-    screen.width
-  );
-}
-
 // Given x/y coord, determine if point is within screen bottom touch zone.
 // @TODO take y direction into account when calculating hotzone.
 function isInScreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
