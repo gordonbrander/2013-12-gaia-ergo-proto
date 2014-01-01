@@ -348,11 +348,6 @@ function isEventStart(event) {
   return event && event.type === 'touchstart';
 }
 
-// Begins with touchmove event.
-function isHeadEventStart(node) {
-  return isEventStart(value(head(node)));
-}
-
 function isTailEventStop(node) {
   return isEventStop(value(node));
 }
