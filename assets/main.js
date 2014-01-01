@@ -329,12 +329,6 @@ function view(target, spread, update, enter, exit) {
   });
 }
 
-// Get value at `key` on `thing`, or null if `thing` is not an object or no
-// value at key.
-function get(thing, key) {
-  return thing && !isNullish(thing[key]) ? thing[key] : null;
-}
-
 // Check if an event is an ending event (cancel or end).
 function isEventStop(event) {
   return event && (event.type === 'touchend' || event.type === 'touchcancel');
