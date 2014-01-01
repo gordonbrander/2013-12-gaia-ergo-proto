@@ -237,6 +237,8 @@ var id = a.id;
 var dom = require('dom');
 var $ = dom.$;
 var hasClass = dom.hasClass;
+var addClass = dom.addClass;
+var removeClass = dom.removeClass;
 var hasTouches = dom.hasTouches;
 var withTargetId = dom.withTargetId;
 var withId = dom.withId;
@@ -518,10 +520,10 @@ function app(window) {
     cancel: rbCancelEl,
     rocketbar: rbRocketbarEl
   }, rbTaps, function (els, event) {
-    dom.addClass(els.rocketbar, 'js-expanded');
-    dom.addClass(els.keyboard, 'js-activated');
-    dom.removeClass(els.cancel, 'js-hide');
-    dom.removeClass(els.overlay, 'js-hide');
+    addClass(els.rocketbar, 'js-expanded');
+    addClass(els.keyboard, 'js-activated');
+    removeClass(els.cancel, 'js-hide');
+    removeClass(els.overlay, 'js-hide');
   });
 
   var rbBlurWrites = view({
@@ -532,13 +534,13 @@ function app(window) {
     body: bodyEl
   }, rbBlurs, function (els, event) {
     event = haltEvent_(event);
-    dom.removeClass(els.keyboard, 'js-activated');
-    dom.addClass(els.cancel, 'js-hide');
-    dom.addClass(els.overlay, 'js-hide');
+    removeClass(els.keyboard, 'js-activated');
+    addClass(els.cancel, 'js-hide');
+    addClass(els.overlay, 'js-hide');
 
     // Collapse (or not) per current task manager status.
-    if (!dom.hasClass(els.body, 'tm-mode'))
-      dom.removeClass(els.rocketbar, 'js-expanded');
+    if (!hasClass(els.body, 'tm-mode'))
+      removeClass(els.rocketbar, 'js-expanded');
   });
 
   var toTmWrites = view({
@@ -546,19 +548,19 @@ function app(window) {
     head: activeSheetEl,
     rocketbar: rbRocketbarEl
   }, rbSwipes, function (els, event) {
-    dom.addClass(els.body, 'tm-mode');
-    dom.addClass(els.rocketbar, 'js-expanded');
-    dom.addClass(els.head, 'sh-scaled');
+    addClass(els.body, 'tm-mode');
+    addClass(els.rocketbar, 'js-expanded');
+    addClass(els.head, 'sh-scaled');
   });
 
   function updateSetPanelClose(els, event) {
-    dom.addClass(els.panel, 'js-hide');
-    dom.addClass(els.overlay, 'js-hide');
+    addClass(els.panel, 'js-hide');
+    addClass(els.overlay, 'js-hide');
   }
 
   function updateSetPanelOpen(els, event) {
-    dom.removeClass(els.panel, 'js-hide');
-    dom.removeClass(els.overlay, 'js-hide');
+    removeClass(els.panel, 'js-hide');
+    removeClass(els.overlay, 'js-hide');
   }
 
   var setPanelWrites = view({
@@ -568,7 +570,7 @@ function app(window) {
     event = haltEvent_(event);
 
     if (event.target.id === 'set-overlay') updateSetPanelClose(els, event);
-    else if (!dom.hasClass(els.panel, 'js-hide')) updateSetPanelClose(els, event);
+    else if (!hasClass(els.panel, 'js-hide')) updateSetPanelClose(els, event);
     else updateSetPanelOpen(els, event);
   });
 
