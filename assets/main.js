@@ -580,6 +580,10 @@ function app(window) {
   var touchends = on(window, 'touchend');
   var touchcancels = on(window, 'touchcancel');
 
+  var bottomEdgeTouchstarts = filter(touchstarts, isEventInScreenBottomEdge);
+  var bottomDrags = drags(bottomEdgeTouchstarts, touchmoves, touchcancels, touchends);
+  var bottomSwipes = reject(bottomDrags, isTap);
+
   var rbStarts = filter(touchstarts, withTargetId('rb-rocketbar'));
   // We want all drags that begin in RocketBar and end wherever.
   var rbDrags = drags(rbStarts, touchmoves, touchcancels, touchends);
@@ -598,11 +602,6 @@ function app(window) {
   var setIconTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
   var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
   var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
-
-  var bottomEdgeTouchstarts = filter(touchstarts, isEventInScreenBottomEdge);
-
-  var bottomDrags = drags(bottomEdgeTouchstarts, touchmoves, touchcancels, touchends);
-  var bottomSwipes = reject(bottomDrags, isTap);
 
   // @TODO this obviously only works when we only have one sheet in task
   // manager.
@@ -630,13 +629,7 @@ function app(window) {
     removeClass(els.overlay, 'js-hide');
   });
 
-  var rbBlurWrites = write({
-    keyboard: keyboardEl,
-    overlay: rbOverlayEl,
-    cancel: rbCancelEl,
-    rocketbar: rbRocketbarEl,
-    body: bodyEl
-  }, rbBlurs, function (els, event) {
+  function updateBlurRocketbar(els, event) {
     event = haltEvent_(event);
     removeClass(els.keyboard, 'js-activated');
     addClass(els.cancel, 'js-hide');
@@ -645,7 +638,15 @@ function app(window) {
     // Collapse (or not) per current task manager status.
     if (!hasClass(els.body, 'tm-mode'))
       removeClass(els.rocketbar, 'js-expanded');
-  });
+  }
+
+  var rbBlurWrites = write({
+    keyboard: keyboardEl,
+    overlay: rbOverlayEl,
+    cancel: rbCancelEl,
+    rocketbar: rbRocketbarEl,
+    body: bodyEl
+  }, rbBlurs, updateBlurRocketbar);
 
   var toTmWrites = write({
     body: bodyEl,
@@ -689,10 +690,21 @@ function app(window) {
   });
 
   var toHomeWrites = write({
-    manager: tmEl
-  }, bottomSwipes, function (els, node) {
-    event = haltEvent_(value(node));
-    go(scaleOut(els.manager, 600, 'ease-in'));
+    manager: tmEl,
+    touchstart: null,
+    keyboard: keyboardEl,
+    overlay: rbOverlayEl,
+    cancel: rbCancelEl,
+    rocketbar: rbRocketbarEl,
+    body: bodyEl
+  }, bottomSwipes, function (state, node) {
+    var touchstart = value(head(node));
+    if (touchstart === state.touchstart) return;
+
+    haltEvent_(value(node));
+    go(scaleOut(state.manager, 600, 'ease-in'));
+    state.touchstart = touchstart;
+    updateBlurRocketbar(state, value(node));
   });
 
   // Merge all accumulatable spreads so they will begin accumulation at same
