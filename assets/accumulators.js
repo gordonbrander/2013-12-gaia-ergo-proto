@@ -114,6 +114,13 @@ function accumulators(_, exports) {
   exports.isMethodAt = isMethodAt;
 
 
+  // Determine if `thing` is null-ish (uses non-strict comparison).
+  function isNullish(thing) {
+    return thing == null;
+  }
+  exports.isNullish = isNullish;
+
+
   // End is our token that represents the end of an accumulatable.
   // `accumulatable`s can pass this token as the last item to denote they are
   // finished sending values. Accumulating `next` functions may also return `end`
@@ -134,24 +141,21 @@ function accumulators(_, exports) {
   // any turn of the event loop.
   function accumulate(spread, next, initial) {
     // If spread is accumulatable, call accumulate method.
-    isMethodAt(spread, 'accumulate') ?
-      spread.accumulate(next, initial) :
-      // ...otherwise, if spread has a reduce method, fall back to accumulation
-      // with reduce, then call `next` with `end` token and result of reduction.
-      // Reducible spreads are expected to return a value for `reduce`.
-      isMethodAt(spread, 'reduce') ?
-        next(spread.reduce(next, initial), end) :
-        // ...otherwise, if spread is nullish, end. `null` is considered to be
-        // an empty spread (akin to an empty array). This approach takes
-        // inspiration from Lisp dialects, where `null` literally _is_ an empty
-        // list. It also just makes sense: `null` is a non-value, and should
-        // not accumulate.
-        spread == null ?
-          next(initial, end) :
-          // ...otherwise, call `next` with value, then `end`. I.e, values
-          // without a `reduce`/`accumulate` method are treated as a spread
-          // containing one item.
-          next(next(initial, spread), end);
+    if(isMethodAt(spread, 'accumulate')) spread.accumulate(next, initial);
+    // ...otherwise, if spread has a reduce method, fall back to accumulation
+    // with reduce, then call `next` with `end` token and result of reduction.
+    // Reducible spreads are expected to return a value for `reduce`.
+    else if (isMethodAt(spread, 'reduce')) next(spread.reduce(next, initial), end);
+    // ...otherwise, if spread is nullish, end. `null` is considered to be
+    // an empty spread (akin to an empty array). This approach takes
+    // inspiration from Lisp dialects, where `null` literally _is_ an empty
+    // list. It also just makes sense: `null` is a non-value, and should
+    // not accumulate.
+    else if (isNullish(spread)) next(initial, end);
+    // ...otherwise, call `next` with value, then `end`. I.e, values
+    // without a `reduce`/`accumulate` method are treated as a spread
+    // containing one item.
+    else next(next(initial, spread), end);
   }
   exports.accumulate = accumulate;
 
