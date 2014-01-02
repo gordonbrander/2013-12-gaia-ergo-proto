@@ -264,5 +264,5 @@ video {
   position: absolute;
   top: 0;
   width: 320px;
-  z-index: 250;
+  z-index: 600;
 }
