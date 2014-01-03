@@ -486,59 +486,6 @@ function isEventStart(event) {
   return event && event.type === 'touchstart';
 }
 
-function isTailEventStop(node) {
-  return isEventStop(value(node));
-}
-
-// Build touch event linked lists that look like:
-//
-//     touchstart.null
-//     touchmove.touchstart.null
-//     touchend.touchmove.touchstart.null
-//
-// Where touchmove is in all cases the most recent touchmove at creation of the
-// list node. Used by `drags()` (see below).
-function reduceDrag(before, event) {
-  // Previous event is called `next` in accord with linked list convention.
-  // See <https://en.wikipedia.org/wiki/Linked_list>.
-
-  // Break off new chain if touchstart, or if previous event was an
-  // ending event.
-  if (isEventStart(event))
-    return node(event);
-
-  // If last event was a touchend or if `before` was null, return null.
-  // We do this in cases where events happen without a previous corresponding
-  // touchstart. This can happen on first turn or after. Instead of
-  // creating chains for these orphan moves/ends, we return null
-  // (filtered out in `drags`). This step is repeated until a new start begins.
-  if(isNullish(before) || isTailEventStop(before)) return null;
-
-  // Subsequent touchmoves.
-  if (isEventMove(event) && isEventMove(value(before)))
-    // Branch off of previous touchmove node's parent. Should be a touchstart.
-    // This allows previous touchmoves to be garbaged.
-    return node(event, list.next(before));
-
-  // First touchmove, end and cancel, chain with previous node.
-  return node(event, before);
-}
-
-// Turns touchstart, touchmove, touchend cycles into a linked list of events.
-// Note that touchmove event fires every time, but linked list node is
-// mutated to reduce garbage. This means the resulting object will
-// eventually contain just 3 nodes: touchstart, last touchmove, touched.
-function drags(touchstarts, touchmoves, touchcancels, touchends) {
-  // Merge all touch types into a single stream.
-  // @TODO getting duplicate touchends for some reason. Need to investigate.
-  var events = merge([touchstarts, touchmoves, touchcancels, touchends]);
-
-  // Build all chains.
-  // Use hub to ensure reduceDrag is called once per item.
-  // This keeps it's `before` state correct for chaining.
-  return hub(reject(reductions(events, reduceDrag, null), isNullish));
-}
-
 // Iterate over an indexed object using `length`, returning the reduced value.
 function reduceIndexed(indexed, next, initial) {
   var accumulated = initial;
