@@ -369,6 +369,7 @@ define('helpers', function (require, exports) {
   var a = require('accumulators');
   var accumulate = a.accumulate;
   var id = a.id;
+  var hub = a.hub;
 
   // Cause a spread to begin accumulation. Log each item along the way.
   // Returns no value.
@@ -397,7 +398,7 @@ define('helpers', function (require, exports) {
   //
   // Returns a new spread of items that pass `assert`.
   function asserts(spread, assert) {
-    return accumulatable(function accumulateFilterAdjacent(next, initial) {
+    return hub(accumulatable(function accumulateFilterAdjacent(next, initial) {
       var accumulated = initial;
       accumulate(spread, function nextAssert(left, right) {
         if (right === end) next(accumulated, end);
@@ -406,7 +407,7 @@ define('helpers', function (require, exports) {
         // Right becomes new left for nextAssert.
         return right;
       }, null);
-    });
+    }));
   }
   exports.asserts = asserts;
 
@@ -441,10 +442,12 @@ var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
 var id = a.id;
+var isNullish = a.isNullish;
 
 var helpers = require('helpers');
 var print = helpers.print;
 var go = helpers.go;
+var asserts = helpers.asserts;
 
 var dom = require('dom');
 var $ = dom.$;
@@ -469,10 +472,6 @@ var anim = require('animation');
 var animation = anim.animation;
 var scaleOut = anim.scaleOut;
 var fadeIn = anim.fadeIn;
-
-function isNullish(thing) {
-  return thing == null;
-}
 
 // Check if an event is an ending event (cancel or end).
 function isEventStop(event) {
@@ -540,6 +539,111 @@ function drags(touchstarts, touchmoves, touchcancels, touchends) {
   return hub(reject(reductions(events, reduceDrag, null), isNullish));
 }
 
+// Iterate over an indexed object using `length`, returning the reduced value.
+function reduceIndexed(indexed, next, initial) {
+  var accumulated = initial;
+  for (var i = 0; i < indexed.length; i += 1)
+    accumulated = next(accumulated, indexed[i]);
+  return accumulated;
+}
+
+// Return x if x is not nullish, y otherwise.
+// Useful for fallback values.
+function maybe(x, y) {
+  return isNullish(x) ? y : x;
+}
+
+function getTouchById(touchList, touch) {
+  return touchList && touchList.identifiedTouch ?
+    touchList.identifiedTouch(touch.identifier) : null;
+}
+
+// Augment a single touch object, determined by the `indentifier` of
+// `prevTouch`. Used by `augmentTouches_`.
+function augmentTouch_(currTouchEvent, prevTouch) {
+  var currTimeStamp = currTouchEvent.timeStamp;
+  // Get current touch from `changedTouches`. This ensures we only mutate
+  // touches that need to be updated.
+  var changedTouch = getTouchById(currTouchEvent.changedTouches, prevTouch);
+
+  if (changedTouch && isEventStart(currTouchEvent)) {
+    // Previous position is same as current position for start events.
+    changedTouch.prevScreenX = changedTouch.screenX;
+    changedTouch.origScreenX = changedTouch.screenX;
+
+    changedTouch.prevScreenY = changedTouch.screenY;
+    changedTouch.origScreenY = changedTouch.screenY;
+
+    changedTouch.timeStamp = currTimeStamp;
+    changedTouch.prevTimeStamp = currTimeStamp;
+    changedTouch.origTimeStamp = currTimeStamp;
+  }
+  // For move events, update coords via prev.
+  else if (changedTouch && isEventMove(currTouchEvent)) {
+    // prevScreenX is screenX of prevTouch. Fall back to current screenX,
+    // in case we don't have a previous (can happen when augmenting moves w/o
+    // start events).
+    changedTouch.prevScreenX = maybe(prevTouch.screenX, changedTouch.screenX);
+    changedTouch.origScreenX = maybe(prevTouch.origScreenX, changedTouch.screenX);
+
+    changedTouch.prevScreenY = maybe(prevTouch.screenY, changedTouch.screenY);
+    changedTouch.origScreenY = maybe(prevTouch.origScreenY, changedTouch.screenY);
+
+    changedTouch.timeStamp = currTimeStamp;
+    changedTouch.prevTimeStamp = maybe(prevTouch.timeStamp, currTimeStamp);
+    changedTouch.origTimeStamp = maybe(prevTouch.origTimeStamp, currTimeStamp);
+  }
+  // In the case of "stop" events, `changedTouches` means touches that have
+  // left the screen.
+  else if (changedTouch && isEventStop(currTouchEvent)) {
+    // Because the screen coords will be the same for these
+    // touches as the touches of the last touch event, we want to grab prev coords
+    // from the previous touch.
+    //
+    // prevScreenX is prevScreenX of prevTouch. Fall back to current screenX.
+    changedTouch.prevScreenX = maybe(prevTouch.prevScreenX, changedTouch.screenX);
+    changedTouch.origScreenX = maybe(prevTouch.origScreenX, changedTouch.screenX);
+
+    changedTouch.prevScreenY = maybe(prevTouch.prevScreenY, changedTouch.screenY);
+    changedTouch.origScreenY = maybe(prevTouch.origScreenY, changedTouch.screenY);
+
+    changedTouch.timeStamp = currTimeStamp;
+    changedTouch.prevTimeStamp = maybe(prevTouch.prevTimeStamp, currTimeStamp);
+    changedTouch.origTimeStamp = maybe(prevTouch.origTimeStamp, currTimeStamp);
+  }
+
+  return currTouchEvent;
+}
+
+// Augment a list of touches in `currTouchEvent`. Used by `augmentTouchEvents`.
+function augmentTouches_(prevTouchEvent, currTouchEvent) {
+  // Pick touchlist we're going to iterate over. If we have no previous touch
+  // event, we'll iterate over the current set of touches, so they have
+  // initial values. In all other cases, we want to iterate over the
+  // previous touches so as to compare them with current touches and derive
+  // what has changed.
+  var touches = isNullish(prevTouchEvent) ?
+    currTouchEvent.touches : prevTouchEvent.touches;
+
+  // Mutate current touch events, then return list of touches to become next
+  // `prevTouchEvent`.
+  return reduceIndexed(touches, augmentTouch_, currTouchEvent);
+}
+
+// Mutate touches in a spread of touch events, adding properties that allow
+// for velocity verlet calculations.
+//
+// * prevScreenX
+// * prevScreenY
+//
+// @TODO augment with prevTimeStamp to allow for velocity verlet calculation.
+// @TODO augment touch with uniqueIdentifier
+function augmentTouchEvents(touchEvents) {
+  // It is important that reductions() use hub() here, or multiple reductions
+  // of source will cause `prevTouchEvent` to be incorrect.
+  return hub(reductions(touchEvents, augmentTouches_, null));
+}
+
 function touchDistanceY(touch0, touch1) {
   y1 = touch0.screenY;
   y2 = touch1.screenY;
@@ -558,6 +662,13 @@ function isInScreenBottomEdge(x, y, screenW, screenH) {
   );
 }
 
+function isTouchEventFromScreenBottomEdge(event) {
+  var firstTouch = event.changedTouches[0];
+  var x = firstTouch.origScreenX;
+  var y = firstTouch.origScreenY;
+  return isInScreenBottomEdge(x, y, screen.width, screen.height);
+}
+
 function isEventInScreenBottomEdge(event) {
   var firstTouch = event.touches[0];
   var x = firstTouch.screenX;
@@ -566,20 +677,21 @@ function isEventInScreenBottomEdge(event) {
 }
 
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
-function isTap(node) {
-  // Calculate y distance moved using touchstart event and last touchmove.
-  // @TODO if we can accurately get a good read using just velocity, it
-  // becomes unnecessary to keep `start` and maybe `end`.
-  var touchStartFirstTouch = value(head(node)).touches[0];
-  var mostRecentTouches = value(find(node, hasTouches)).touches[0];
-
-  var distanceMoved = touchDistanceY(
-    touchStartFirstTouch,
-    mostRecentTouches
+function isTap(event) {
+  var firstTouch = event.changedTouches[0];
+  return (
+    (firstTouch.screenX - firstTouch.prevScreenX) === 0 &&
+    (firstTouch.screenY - firstTouch.prevScreenY) === 0
   );
+}
 
-  // Filter out touch cycle that moved more than 20px.
-  return Math.abs(distanceMoved) < 5;
+// Create a predicate function to determine if given event has `n` changed
+// touches.
+function withFingers(n) {
+  function isTouchEventWithNFingers(event) {
+    return event && event.changedTouches && event.changedTouches.length === n;
+  }
+  return isTouchEventWithNFingers;
 }
 
 function haltEvent_(event) {
@@ -594,19 +706,38 @@ function app(window) {
   var touchmoves = on(window, 'touchmove');
   var touchends = on(window, 'touchend');
   var touchcancels = on(window, 'touchcancel');
+  var touchEvents = merge([touchstarts, touchmoves, touchcancels, touchends]);
+  var augTouchEvents = augmentTouchEvents(touchEvents);
+  var augTouchstops = filter(augTouchEvents, isEventStop);
+  var augTouchmoves = filter(augTouchEvents, isEventMove);
 
-  var bottomEdgeTouchstarts = filter(touchstarts, isEventInScreenBottomEdge);
-  var bottomDrags = drags(bottomEdgeTouchstarts, touchmoves, touchcancels, touchends);
-  var bottomSwipes = reject(bottomDrags, isTap);
+  var bottomEdgeTouchmoves = filter(augTouchmoves, isTouchEventFromScreenBottomEdge);
+  var bottomEdgeSingleTouchmoves = filter(bottomEdgeTouchmoves, withFingers(1));
 
-  var rbStarts = filter(touchstarts, withTargetId('rb-rocketbar'));
-  // We want all drags that begin in RocketBar and end wherever.
-  var rbDrags = drags(rbStarts, touchmoves, touchcancels, touchends);
-  var rbDragStops = filter(rbDrags, isTailEventStop);
+  var firstBottomEdgeSingleTouchmoves = asserts(bottomEdgeSingleTouchmoves, function(prev, curr) {
+    // Handle first case, where prev is null.
+    if (!prev) return true;
+
+    var currTouch = curr.changedTouches[0];
+    var prevTouch = getTouchById(prev.touches, currTouch.identifier);
+
+    // If this is the first time touch appeared, return true.
+    if (!prevTouch) return true;
+
+    return (
+      // If identifiers don't match, these are definitely different.
+      // However, Firefox (and maybe other browsers) recycle identifiers,
+      prevTouch.identifier !== currTouch.identifier ||
+      // so in addition, we check the original timestamp.
+      prevTouch.origTimeStamp !== currTouch.origTimeStamp
+    );
+  });
+
+  var rbTouchstops = filter(augTouchstops, withTargetId('rb-rocketbar'));
 
   // Taps on RocketBar are any swipe that covers very little ground.
-  var rbTaps = filter(rbDragStops, isTap);
-  var rbSwipes = reject(rbDragStops, isTap);
+  var rbTaps = filter(rbTouchstops, isTap);
+  var rbSwipes = reject(rbTouchstops, isTap);
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
 
@@ -708,25 +839,20 @@ function app(window) {
   var toHomeWrites = write({
     home: hsEl,
     manager: tmEl,
-    touchstart: null,
     keyboard: keyboardEl,
     overlay: rbOverlayEl,
     cancel: rbCancelEl,
     rocketbar: rbRocketbarEl,
     body: bodyEl
-  }, bottomSwipes, function (state, node) {
-    var touchstart = value(head(node));
-    if (touchstart === state.touchstart) return;
-
-    haltEvent_(value(node));
+  }, firstBottomEdgeSingleTouchmoves, function (els, event) {
+    haltEvent_(event);
 
     go(concat([
-      scaleOut(state.manager, 400, 'ease-in'),
-      fadeIn(state.home, 800, 'ease-out')
+      scaleOut(els.manager, 400, 'ease-in'),
+      fadeIn(els.home, 800, 'ease-out')
     ]));
 
-    state.touchstart = touchstart;
-    updateBlurRocketbar(state, value(node));
+    updateBlurRocketbar(els, event);
   });
 
   // Merge all accumulatable spreads so they will begin accumulation at same
