@@ -154,70 +154,6 @@ define('dom', function (require, exports) {
   return exports;
 });
 
-// Define module that offers a simple singly-linked list implementation.
-define('linked-list', function (require, exports) {
-  // Reducible prototype for linked list node.
-  var __node__ = {
-    reduce: function reduceNodes(reducer, initial) {
-      var node = this;
-      var accumulated = initial;
-      do {
-        accumulated = reducer(accumulated, node);
-        node = next(node);
-      }
-      while(node !== null);
-      return accumulated;
-    }
-  };
-
-  // Create a linked list node.
-  function node(value, nextNode) {
-    var n = Object.create(__node__);
-    n.value = value;
-    n.next = nextNode || null;
-    return n;
-  }
-  exports.node = node;
-
-  function next(node) {
-    return node && node.next ? node.next : null;
-  }
-  exports.next = next;
-
-  // Return value of something.
-  function value(thing) {
-    // If thing has a value, return it. Otherwise
-    return (thing && thing.value != null) ? thing.value : thing;
-  }
-  exports.value = value;
-
-  // Given 2 items, return second.
-  function chooseCurr(prev, curr) {
-    return curr;
-  }
-
-  // Find head of reducible data structure.
-  function head(reducible) {
-    return reducible && reducible.reduce ? reducible.reduce(chooseCurr) : null;
-  }
-  exports.head = head;
-
-  // Find first match for `predicate` in reducible data structure.
-  // Returns null if no match is found.
-  function find(reducible, predicate) {
-    return reducible.reduce(function reduceFind(found, node) {
-      // Match values, not nodes. This allows for general-purpose
-      // predicate functions.
-      if (found) return found;
-      if (predicate(value(node))) return node;
-      return null;
-    }, null);
-  }
-  exports.find = find;
-
-  return exports;
-});
-
 define('view', function (require, exports) {
   var a = require('accumulators');
   var accumulatable = a.accumulatable;
@@ -459,12 +395,6 @@ var withTargetId = dom.withTargetId;
 var withId = dom.withId;
 var withClass = dom.withClass;
 var withTargetClass = dom.withTargetClass;
-
-var list = require('linked-list');
-var node = list.node;
-var find = list.find;
-var head = list.head;
-var value = list.value;
 
 var write = require('view').write;
 
