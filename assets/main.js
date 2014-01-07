@@ -561,22 +561,20 @@ function inRange(number, less, more) {
 // @TODO take y direction into account when calculating hotzone.
 function isInScreenBottomEdge(x, y, screenW, screenH) {
   return (
-    (inRange(x, 0, screenW) && inRange(y, screenH - 20, screenH))
+    (inRange(x, 0, screenW) && inRange(y, screenH - 40, screenH))
   );
 }
 
-function isTouchEventFromScreenBottomEdge(event) {
+function isTouchEventUpFromBottomEdge(event) {
   var firstTouch = event.changedTouches[0];
   var x = firstTouch.origScreenX;
   var y = firstTouch.origScreenY;
-  return isInScreenBottomEdge(x, y, screen.width, screen.height);
-}
-
-function isEventInScreenBottomEdge(event) {
-  var firstTouch = event.touches[0];
-  var x = firstTouch.screenX;
-  var y = firstTouch.screenY;
-  return isInScreenBottomEdge(x, y, screen.width, screen.height);
+  return (
+    // Touch is heading up.
+    firstTouch.screenY - firstTouch.prevScreenY < 0 &&
+    // Touch started in bottom edge hot zone.
+    isInScreenBottomEdge(x, y, screen.width, screen.height)
+  );
 }
 
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
@@ -614,7 +612,7 @@ function app(window) {
   var augTouchstops = filter(augTouchEvents, isEventStop);
   var augTouchmoves = filter(augTouchEvents, isEventMove);
 
-  var bottomEdgeTouchmoves = filter(augTouchmoves, isTouchEventFromScreenBottomEdge);
+  var bottomEdgeTouchmoves = filter(augTouchmoves, isTouchEventUpFromBottomEdge);
   var bottomEdgeSingleTouchmoves = filter(bottomEdgeTouchmoves, withFingers(1));
 
   var firstBottomEdgeSingleTouchmoves = asserts(bottomEdgeSingleTouchmoves, function(prev, curr) {
