@@ -230,13 +230,6 @@ define('animation', function (require, exports) {
     return element;
   }
 
-  function last(next, accumulated) {
-    // Accumulate next with end.
-    next(accumulated, end);
-    // Ensure return of end.
-    return end;
-  }
-
   function onAnimationEvents(element) {
     return accumulatable(function accumulateAnimationEvents(next, initial) {
       var events = on(element, 'animationend');
