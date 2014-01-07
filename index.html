@@ -14,14 +14,19 @@
     <span id="rb-cancel" class="rb-cancel js-hide">Cancel</span>
     <div id="rb-icons" class="rb-icons ir"></div>
   </div>
-  <div id="hs-homescreen" class="hs-homescreen ir"></div>
-  <div id="tm-task-manager" class="tm-task-manager"></div>
-  <div id="sh-sheet-000000" class="sh-sheet sh-head">
-    <img src="assets/site_kitsilano.png" width="320" height="980">
+  <div id="hs-homescreen" class="hs-homescreen ir" style="display: none; opacity: 0;">
+    <div id="hs-kitsilano-hotzone"></div>
   </div>
-  <div id="rb-overlay" class="rb-overlay js-hide"></div>
+  <div id="tm-task-manager" class="tm-task-manager">
+    <div id="sh-sheet-000000" class="sh-sheet sh-head">
+      <div class="sh-cover"></div>
+      <img src="assets/site_kitsilano.png" width="320" height="980">
+    </div>
+  </div>
+  <div id="rb-overlay" class="sys-overlay js-hide"></div>
+  <div id="set-overlay" class="sys-overlay js-hide"></div>
   <div id="set-settings" class="set-settings ir js-hide"></div>
-  <div id="not-notifications" class="js-hide">
+  <div id="not-notifications" class="js-hide not-notifications">
     <img src="assets/notifications.png" width="320" height="760" />
   </div>
   <div id="sys-fake-keyboard" class="sys-fake-keyboard ir"></div>

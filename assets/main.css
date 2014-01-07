@@ -22,6 +22,38 @@
   font-style: normal;
 }
 
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes fade-out {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scale-out {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0);
+  }
+}
+
 html {
   background: #000;
   color: #fff;
@@ -85,6 +117,16 @@ video {
   transform: translateY(0);
 }
 
+/* General class for overlays */
+.sys-overlay {
+  background: rgba(0, 0, 0, .5);
+  bottom: 0;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
 /* RocketBar .rb-
 ----------------------------------------------------------------------------- */
 
@@ -127,18 +169,13 @@ video {
 }
 
 .rb-cancel {
+  height: 50px;
   line-height: 50px;
   position: absolute;
   right: 5px;
 }
 
-.rb-overlay {
-  background: rgba(0, 0, 0, .5);
-  bottom: 0;
-  left: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
+#rb-overlay {
   z-index: 500;
 }
 
@@ -157,17 +194,29 @@ video {
   z-index: 400;
 }
 
+#set-overlay {
+  z-index: 399;
+}
+
 /* Launcher homescreen .hs-
 ----------------------------------------------------------------------------- */
 
 .hs-homescreen {
   background-image: url(home.png);
   background-size: 320px;
-  height: 868px;
+  height: 790px;
   position: absolute;
   top: 20px;
   width: 320px;
   z-index: 1;
+}
+
+#hs-kitsilano-hotzone {
+  height: 75px;
+  left: 18px;
+  position: absolute;
+  top: 105px;
+  width: 60px;
 }
 
 /* Task manager .tm-
@@ -189,7 +238,7 @@ video {
   height: 460px;
   overflow: auto;
   position: absolute;
-  top: 20px;
+  top: 0;
   transition: 200ms transform linear;
   width: 320px;
   z-index: 300;
@@ -197,6 +246,21 @@ video {
 
 .sh-scaled {
   transform: scale(.8);
+}
+
+/* Transparent cover over sheet that is hidden when zoomed in. */
+.sh-cover {
+  display: none;
+  bottom: 0;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+/* Cover sheet when scaled (task manager mode). */
+.sh-scaled > .sh-cover {
+  display: block;
 }
 
 /* not-notifications .not-
@@ -208,5 +272,5 @@ video {
   position: absolute;
   top: 0;
   width: 320px;
-  z-index: 250;
+  z-index: 600;
 }

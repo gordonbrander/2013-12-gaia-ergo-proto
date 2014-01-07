@@ -3,6 +3,37 @@ define('dom', function (require, exports) {
   var a = require('accumulators');
   var handleEnd = a.handleEnd;
 
+  var __slice__ = Array.prototype.slice;
+  function slice(arraylike, start, end) {
+    return __slice__.call(arraylike, start, end);
+  }
+  exports.slice = slice;
+
+
+  // Check if a `thing` is an object with an own `length` property. This is the
+  // closest proxy to knowing if an object is arraylike.
+  function hasLength(thing) {
+    return thing && thing.hasOwnProperty && thing.hasOwnProperty('length');
+  }
+
+  // Get a real array of elements. `element` argument can be a single element,
+  // an arraylike list of elements, or a selector to be queried.
+  function $(element) {
+    // If `element` is actually a selector string, query for elements, then
+    // slice nodeList into true array.
+    if (typeof element === 'string')
+      return slice(document.querySelectorAll(element));
+
+    // If `element` has a length property (it's arraylike), we slice it.
+    // This covers cases where you may want to pass a nodeList to `$`.
+    if (hasLength(element)) return slice(element);
+
+    // Otherwise, we can assume element is just an element. Elements are
+    // accumulatable, so we can just return it.
+    return element;
+  }
+  exports.$ = $;
+
   // Internal higher-order function that expidites creating "setters" that
   // can operate on multiple items at once. Pass a `setOn` function that looks
   // like:
@@ -61,7 +92,7 @@ define('dom', function (require, exports) {
       element.className = prevElementClass + ' ' + elementClass;
     return elementClass;
   });
-  exports.addClass = setAddClass;
+  exports.addClass = addClass;
 
   var removeClass = multisetter(function removeClassFrom(elementClass, element) {
     var pattern = RegExp(elementClass, 'g');
@@ -105,74 +136,252 @@ define('dom', function (require, exports) {
   exports.withTargetId = withTargetId;
 
   function withClass(className) {
-    function isClassOnTarget(target) {
-      return hasClass(target, className);
+    function isClassOnElement(element) {
+      return hasClass(element, className);
+    }
+    return isClassOnElement;
+  }
+  exports.withClass = withClass;
+
+  function withTargetClass(className) {
+    function isClassOnTarget(event) {
+      return hasClass(event.target, className);
     }
     return isClassOnTarget;
   }
-  exports.withClass = withClass;
+  exports.withTargetClass = withTargetClass;
 
   return exports;
 });
 
-// Define module that offers a simple singly-linked list implementation.
-define('linked-list', function (require, exports) {
-  // Reducible prototype for linked list node.
-  var __node__ = {
-    reduce: function reduceNodes(reducer, initial) {
-      var node = this;
-      var accumulated = initial;
-      do {
-        accumulated = reducer(accumulated, node);
-        node = next(node);
-      }
-      while(node !== null);
-      return accumulated;
+define('view', function (require, exports) {
+  var a = require('accumulators');
+  var accumulatable = a.accumulatable;
+  var end = a.end;
+  var accumulate = a.accumulate;
+
+  // Write to a target as a side-effect of accumulating `spread`.
+  //
+  // `enter(target)` must return a value representing the target to be written
+  // to. This gives you a chance to create the target from a value, or modify
+  // the target when writing begins.
+  //
+  // `update(target, value)` describes how to write to the target. It is not
+  // required to return a value.
+  //
+  // `exit(target)` allows you to destroy or modify the target when spread has
+  // ended. It is not required to return a value.
+  //
+  // `update`, `enter` and `exit` are all optional.
+  //
+  // Returns an accumulatable that will begin writing when accumulated.
+  //
+  // @TODO it would probably behoove composability to make write a typical
+  // accumulator, allowing it to end sources as well as consume them.
+  function write(target, spread, update, enter, exit) {
+    update = update || id;
+    enter = enter || id;
+    exit = exit || id;
+
+    return accumulatable(function accumulatewrite(next, initial) {
+      // Prep target.
+      target = enter(target);
+
+      accumulate(spread, function nextWrite(accumulated, item) {
+        if (item === end) exit(target);
+        else update(target, item);
+        // Accumulate with updated target. Note that this is simply a reference
+        // to `target`. Target will mutate and can't be counted on as a value.
+        return next(accumulated, item);
+      }, initial);
+    });
+  }
+
+  exports.write = write;
+
+  return exports;
+});
+
+define('animation', function (require, exports) {
+  var a = require('accumulators');
+  var on = a.on;
+  var accumulatable = a.accumulatable;
+  var accumulate = a.accumulate;
+  var merge = a.merge;
+  var end = a.end;
+
+  var write = require('view').write;
+
+  function setAnimation_(element, name, duration, easing, iterations) {
+    // Set up animation styles.
+    element.style.animationName = name;
+    element.style.animationDuration = duration + 'ms';
+    element.style.animationIterationCount = (iterations === Infinity) ? 'infinite' : iterations;
+    element.style.animationEasing = easing;
+    return element;
+  }
+
+  function exitAnimation_(element) {
+    // Tear down animation styles.
+    element.style.animationName = 'none';
+    element.style.animationDuration = '0ms';
+    element.style.animationIterationCount = 1;
+    element.style.animationEasing = 'linear';
+    return element;
+  }
+
+  function onAnimationEvents(element) {
+    return accumulatable(function accumulateAnimationEvents(next, initial) {
+      var events = on(element, 'animationend');
+
+      accumulate(events, function nextAnimationEvent(accumulated, event) {
+        accumulated = next(accumulated, event);
+        // End listener as soon as animationend event comes through.
+        next(accumulated, end);
+        return end;
+      }, initial);
+    });
+  }
+
+  // Animate an element using a CSS keyframe animation. Returns an accumulatable
+  // spread good for the start, update and end events of the animation.
+  function animation(element, name, duration, easing, iterations) {
+    // Default number of iterations is 1.
+    iterations = iterations > 1 ? iterations : 1;
+    duration = duration > 0 ? duration : 0;
+    easing = easing || 'linear';
+
+    // create spread of animation events.
+    var anim = onAnimationEvents(element);
+
+    function enterAnimation_(element) {
+      // Set animation on element, kicking it off.
+      return setAnimation_(element, name, duration, easing, iterations);
     }
-  };
 
-  // Create a linked list node.
-  function node(value, nextNode) {
-    var n = Object.create(__node__);
-    n.value = value;
-    n.next = nextNode || null;
-    return n;
+    return write(element, anim, null, enterAnimation_, exitAnimation_);
   }
-  exports.node = node;
+  exports.animation = animation;
 
-  function next(node) {
-    return node && node.next ? node.next : null;
+  function build(name, enter, exit) {
+    function animateBuild(element, duration, easing) {
+      var anim = animation(element, name, duration, easing);
+      return write(element, anim, null, enter, exit);
+    }
+    return animateBuild;
   }
-  exports.next = next;
+  exports.build = build;
 
-  function value(node) {
-    return node && node.value ? node.value : null;
-  }
-  exports.value = value;
-
-  // Given 2 items, return second.
-  function chooseCurr(prev, curr) {
-    return curr;
+  function enterScaleIn(target) {
+    target.style.display = 'block';
+    target.style.opacity = '0';
+    return target;
   }
 
-  // Find head of reducible data structure.
-  function head(reducible) {
-    return reducible.reduce(chooseCurr);
+  function exitScaleIn(target) {
+    target.style.opacity = '1';
+    return target;
   }
-  exports.head = head;
 
-  // Find first match for `predicate` in reducible data structure.
-  // Returns null if no match is found.
-  function find(reducible, predicate) {
-    return reducible.reduce(function reduceFind(found, node) {
-      // Match values, not nodes. This allows for general-purpose
-      // predicate functions.
-      if (found) return found;
-      if (predicate(value(node))) return node;
-      return null;
-    }, null);
+  var scaleIn = build('scale-in', enterScaleIn, exitScaleIn);
+  exports.scaleIn = scaleIn;
+
+  function exitScaleOut(target) {
+    target.style.display = 'none';
+    return target;
   }
-  exports.find = find;
+
+  var scaleOut = build('scale-out', null, exitScaleOut);
+  exports.scaleOut = scaleOut;
+
+  function enterFadeIn(element) {
+    element.style.display = 'block';
+    element.style.opacity = '0';
+    return element;
+  }
+
+  function exitFadeIn(element) {
+    element.style.opacity = '1';
+    return element;
+  }
+
+  var fadeIn = build('fade-in', enterFadeIn, exitFadeIn);
+  exports.fadeIn = fadeIn;
+
+  function enterFadeOut(element) {
+    element.style.display = 'block';
+    element.style.opacity = '1';
+    return element;
+  }
+
+  function exitFadeOut(element) {
+    element.style.display = 'none';
+    return element;
+  }
+
+  var fadeOut = build('fade-out', enterFadeOut, exitFadeOut);
+  exports.fadeOut = fadeOut;
+
+  return exports;
+});
+
+define('helpers', function (require, exports) {
+  var a = require('accumulators');
+  var accumulate = a.accumulate;
+  var id = a.id;
+  var hub = a.hub;
+
+  // Cause a spread to begin accumulation. Log each item along the way.
+  // Returns no value.
+  function print(spread) {
+    accumulate(spread, function nextPrint(_, item) {
+      console.log(item);
+    });
+  }
+  exports.print = print;
+
+  // Cause a spread to begin accumulation. Returns no value.
+  function go(spread) {
+    accumulate(spread, id);
+  }
+  exports.go = go;
+
+  function pluck(spread, key) {
+    return map(spread, function toPluckedKey(object) {
+      return object[key];
+    });
+  }
+  exports.pluck = pluck;
+
+  // Filter items in stream by comparing adjacent items using using function
+  // `assert` to compare.
+  //
+  // Returns a new spread of items that pass `assert`.
+  function asserts(spread, assert) {
+    return hub(accumulatable(function accumulateFilterAdjacent(next, initial) {
+      var accumulated = initial;
+      accumulate(spread, function nextAssert(left, right) {
+        if (right === end) next(accumulated, end);
+        else if (assert(left, right)) accumulated = next(accumulated, right);
+
+        // Right becomes new left for nextAssert.
+        return right;
+      }, null);
+    }));
+  }
+  exports.asserts = asserts;
+
+  // Are 2 things not equal?
+  function isDifferent(thing0, thing1) {
+    return thing0 !== thing1;
+  }
+  exports.isDifferent = isDifferent;
+
+  // Drop adjacent repeats from spread.
+  function dropRepeats(spread) {
+    return asserts(spread, isDifferent);
+  }
+  exports.dropRepeats = dropRepeats;
 
   return exports;
 });
@@ -182,406 +391,160 @@ var on = a.on;
 var map = a.map;
 var filter = a.filter;
 var reject = a.reject;
-var classname = a.classname;
-var addClass = a.addClass;
-var removeClass = a.removeClass;
+var hub = a.hub;
 // @TODO it may be that these DOM writers are not that useful. Perhaps a simple
 // collection of DOM functions on spreads will be valuable instead.
-var setAddClass = a.setAddClass;
-var setRemoveClass = a.setRemoveClass;
-var $ = a.$;
 var merge = a.merge;
+var concat = a.concat;
 var reductions = a.reductions;
 var accumulatable = a.accumulatable;
 var accumulate = a.accumulate;
 var end = a.end;
 var write = a.write;
 var id = a.id;
-var slice = a.slice;
+var isNullish = a.isNullish;
+
+var helpers = require('helpers');
+var print = helpers.print;
+var go = helpers.go;
+var asserts = helpers.asserts;
 
 var dom = require('dom');
+var $ = dom.$;
 var hasClass = dom.hasClass;
+var addClass = dom.addClass;
+var removeClass = dom.removeClass;
 var hasTouches = dom.hasTouches;
 var withTargetId = dom.withTargetId;
 var withId = dom.withId;
 var withClass = dom.withClass;
+var withTargetClass = dom.withTargetClass;
 
-var list = require('linked-list');
-var node = list.node;
-var find = list.find;
-var head = list.head;
-var value = list.value;
+var write = require('view').write;
 
-function print(spread) {
-  accumulate(spread, function (_, item) {
-    console.log(item);
-  });
+var anim = require('animation');
+var animation = anim.animation;
+var scaleOut = anim.scaleOut;
+var fadeIn = anim.fadeIn;
+var scaleIn = anim.scaleIn;
+var fadeOut = anim.fadeOut;
+
+// Check if an event is an ending event (cancel or end).
+function isEventStop(event) {
+  return event && (event.type === 'touchend' || event.type === 'touchcancel');
 }
 
-function isNullish(thing) {
-  return thing == null;
+function isEventMove(event) {
+  return event && event.type === 'touchmove';
 }
 
-// Invoke a method on each object in a spread, presumably mutating that object
-// causing side-effects.
-//
-// Returns a spread of objects after invocation.
-function invoke(spread, method, args) {
-  return map(spread, function mapInvoke(object) {
-    object[method].apply(object, args);
-    return object;
-  });
+function isEventStart(event) {
+  return event && event.type === 'touchstart';
 }
 
-function pluck(spread, key) {
-  return map(spread, function toPluckedKey(object) {
-    return object[key];
-  });
-}
-
-function isObject(thing) {
-  return thing && typeof thing === 'object';
-}
-
-// Filter items in stream by comparing adjacent items using using function
-// `assert` to compare.
-//
-// Returns a new spread of items that pass `assert`.
-function asserts(spread, assert) {
-  return accumulatable(function accumulateFilterAdjacent(next, initial) {
-    var accumulated = initial;
-    accumulate(spread, function nextAssert(left, right) {
-      if (right === end) next(accumulated, end);
-      else if (assert(left, right)) accumulated = next(accumulated, right);
-
-      // Right becomes new left for nextAssert.
-      return right;
-    }, null);
-  });
-}
-
-// Are 2 things not equal?
-function isDifferent(thing0, thing1) {
-  return thing0 !== thing1;
-}
-
-// Drop adjacent repeats from spread.
-function dropRepeats(spread) {
-  return asserts(spread, isDifferent);
-}
-
-// Enumerate over an object's own keys/values, accumulating a value.
-// `initial` defines the initial value for the accumulation. Reference is an
-// optional additional argument that make a common case -- comparing 2
-// objects -- easy and more efficient.
-function enumerate(object, next, initial, reference) {
+// Iterate over an indexed object using `length`, returning the reduced value.
+function reduceIndexed(indexed, next, initial) {
   var accumulated = initial;
-  for (var key in object)
-    // Test for own keys with `hasOwnProperty` instead of `Object.keys` to
-    // avoid garbage creation.
-    //
-    // @TODO need to test this "optimization".
-    if(object.hasOwnProperty(key)) accumulated = next(accumulated, key, object[key], object, reference);
+  for (var i = 0; i < indexed.length; i += 1)
+    accumulated = next(accumulated, indexed[i]);
   return accumulated;
 }
 
-// Set `value` on `object` at `key`. Returns `object`.
-function set_(object, key, value) {
-  object[key] = value;
-  return object;
+// Return x if x is not nullish, y otherwise.
+// Useful for fallback values.
+function maybe(x, y) {
+  return isNullish(x) ? y : x;
 }
 
-// Extend `into` with the own values of another object.
-function extend_(into, object) {
-  return enumerate(object, set_, into);
+function getTouchById(touchList, touch) {
+  return touchList && touchList.identifiedTouch ?
+    touchList.identifiedTouch(touch.identifier) : null;
 }
 
-// Helper function for `contains`.
-function enumerateContains(isMissing, key, value, subset, set) {
-  return (isMissing ? true : set[key] !== subset[key]);
-}
+// Augment a single touch object, determined by the `indentifier` of
+// `prevTouch`. Used by `augmentTouches_`.
+function augmentTouch_(currTouchEvent, prevTouch) {
+  var currTimeStamp = currTouchEvent.timeStamp;
+  // Get current touch from `changedTouches`. This ensures we only mutate
+  // touches that need to be updated.
+  var changedTouch = getTouchById(currTouchEvent.changedTouches, prevTouch);
 
-// Checks if `set` contains all the values present in `subset`.
-function contains(set, subset) {
-  if (!isObject(set) || !isObject(subset)) return false;
-  return !enumerate(subset, enumerateContains, false, set);
-}
+  if (changedTouch && isEventStart(currTouchEvent)) {
+    // Previous position is same as current position for start events.
+    changedTouch.prevScreenX = changedTouch.screenX;
+    changedTouch.origScreenX = changedTouch.screenX;
 
-// Patch a series of diffs on to an object.
-// Returns a spread with each state of the object over time.
-//
-// Note: it's a bad idea to mutate this state object
-// because other consumers will also be using it.
-function patches(diffs, state) {
-  return accumulatable(function accumulateStates(next, initial) {
-    // State must always be an object.
-    state = state || {};
+    changedTouch.prevScreenY = changedTouch.screenY;
+    changedTouch.origScreenY = changedTouch.screenY;
 
-    // Accumulate initial state.
-    var accumulated = next(initial, state);
-
-    function nextDiff(state, diff) {
-      if (diff === end) {
-        next(accumulated, end);
-      }
-      // If values in `state` are different from values in `diff`...
-      // This is a shallow comparison of strict equality.
-      // Goal: diffs that do not change current state are skipped.
-      else if (!contains(state, diff)) {
-        // Update state.
-        state = extend_(extend_({}, state), diff);
-        // Accumulate `next` with new state.
-        accumulated = next(accumulated, state);
-      }
-      return state;
-    }
-
-    accumulate(diffs, nextDiff, state);
-  });
-}
-
-// Filter and transform a spread of values using a "brane" function.
-//
-//     function myBrane(curr, prev, target) { ... }
-//
-// `curr` is the current value of spread, `prev` is the previous value, and
-// `target` is an optional value supplied via the 3rd argument 2 membrane.
-//
-// Function is expected to return either a value or null. If null is returned
-// value will be ignored during accumulation (that value will be skipped).
-//
-// Any value returned becomes the new `curr` value.
-//
-// Typically used to create calculated states based on state properties and
-// current state of `target`.
-//
-// Returns a new spread of non-null values produced by `brane()`.
-//
-// @TODO not a verb. This function derives new states.
-// Candidates: synthesize, derive, secrete (lol), sift. Maybe ok, tho.
-function membrane(spread, brane, target) {
-  return accumulatable(function accumulateMembrane(next, initial) {
-    var accumulated = initial;
-    accumulate(spread, function nextAssert(prev, curr) {
-      // We're only interested in non-null comparisons.
-      // Skips first item in spread.
-      if (isNullish(prev)) return curr;
-
-      // Handle end-of-source scenario.
-      if (curr === end) return next(accumulated, end);
-
-      // Create a product from current and previous value + any target
-      // with state.
-      var product = brane(curr, prev, target);
-      // If product is not nullish, we accumulate. Nullish returns are
-      // considered "not state changes".
-      if (!isNullish(product)) accumulated = next(accumulated, product);
-
-      // Curr becomes next prev.
-      return curr;
-    }, null);
-  });
-}
-
-// Get value at `key` on `thing`, or null if `thing` is not an object.
-function get(thing, key) {
-  return thing ? thing[key] : null;
-}
-
-function isUpdated(curr, prev, key) {
-  return get(prev, key) !== get(curr, key);
-}
-
-// Creates an assertion function to test whether a given property at `key`
-// has been updated.
-function updated(key) {
-  function maybeUpdated(curr, prev) {
-    return isUpdated(curr, prev, key) ? curr : null;
+    changedTouch.timeStamp = currTimeStamp;
+    changedTouch.prevTimeStamp = currTimeStamp;
+    changedTouch.origTimeStamp = currTimeStamp;
   }
-  return maybeUpdated;
-}
+  // For move events, update coords via prev.
+  else if (changedTouch && isEventMove(currTouchEvent)) {
+    // prevScreenX is screenX of prevTouch. Fall back to current screenX,
+    // in case we don't have a previous (can happen when augmenting moves w/o
+    // start events).
+    changedTouch.prevScreenX = maybe(prevTouch.screenX, changedTouch.screenX);
+    changedTouch.origScreenX = maybe(prevTouch.origScreenX, changedTouch.screenX);
 
-function hasTransitioned(curr, prev, key, from, to) {
-  return (get(prev, key) === from) && (get(curr, key) === to);
-}
+    changedTouch.prevScreenY = maybe(prevTouch.screenY, changedTouch.screenY);
+    changedTouch.origScreenY = maybe(prevTouch.origScreenY, changedTouch.screenY);
 
-// Creates an assertion function that checks if a given
-// property at `key` is equal to `from` on `prev` and equal to `to` in
-// `curr`.
-//
-// This gives you state machine-like functionality when used with
-// `asserts()`. For example, to get a spread of all states where your
-// became `awesome`:
-//
-//     var x = asserts(updates, transitioned('awesome', false, true));
-function transitioned(key, from, to) {
-  function maybeTransitioned(curr, prev) {
-    return hasTransitioned(curr, prev, key, from, to) ? curr : null;
+    changedTouch.timeStamp = currTimeStamp;
+    changedTouch.prevTimeStamp = maybe(prevTouch.timeStamp, currTimeStamp);
+    changedTouch.origTimeStamp = maybe(prevTouch.origTimeStamp, currTimeStamp);
   }
-  return maybeTransitioned;
-}
+  // In the case of "stop" events, `changedTouches` means touches that have
+  // left the screen.
+  else if (changedTouch && isEventStop(currTouchEvent)) {
+    // Because the screen coords will be the same for these
+    // touches as the touches of the last touch event, we want to grab prev coords
+    // from the previous touch.
+    //
+    // prevScreenX is prevScreenX of prevTouch. Fall back to current screenX.
+    changedTouch.prevScreenX = maybe(prevTouch.prevScreenX, changedTouch.screenX);
+    changedTouch.origScreenX = maybe(prevTouch.origScreenX, changedTouch.screenX);
 
-function isChanged(curr, prev, key, to) {
-  return (get(prev, key) !== to) && (get(curr, key) === to);
-}
+    changedTouch.prevScreenY = maybe(prevTouch.prevScreenY, changedTouch.screenY);
+    changedTouch.origScreenY = maybe(prevTouch.origScreenY, changedTouch.screenY);
 
-// Creates an assertion function that checks if a given
-// property at `key` is equal to `to` on `curr` but not on `prev`
-function changed(key, to) {
-  function maybeChanged(curr, prev) {
-    return isChanged(curr, prev, key, to) ? curr : null;
-  }
-  return maybeChanged;
-}
-
-function isCurrently(curr, prev, key, value) {
-  return get(curr, key) === value;
-}
-
-// Creates an assertion function that checks if a given
-// property at `key` is equal to `value` in `curr`.
-function currently(key, value) {
-  function maybeCurrently(curr, prev) {
-    return isCurrently(curr, prev, key, value) ? curr : null;
-  }
-  return maybeCurrently;
-}
-
-function wasPreviously(curr, prev, key, value) {
-  return get(prev, key) === value;
-}
-
-// Creates an assertion function that checks if a given
-// property at `key` is equal to `value` in `prev`.
-function previously(key, value) {
-  function maybePreviously(curr, prev) {
-    return wasPreviously(curr, prev, key, value) ? curr : null;
-  }
-  return maybePreviously;
-}
-
-function maybe(value) {
-  function maybeValue(curr) {
-    return !isNullish(curr) ? value : null;
-  }
-  return maybeValue;
-}
-
-// Combine `n` membrane functions into a single composed membrane function
-// that filters `curr` through membranes until either one returns null or
-// all return a value.
-function layer(/* brane, ... */) {
-  var branes = slice(arguments);
-
-  function maybeLayer(curr, prev, target) {
-    // Pass curr through every brane in sequence. If any brane returns null,
-    // the subsequent branes will be skipped and null will be returned.
-    for (var i = 0; i < branes.length; i += 1)
-      curr = !isNullish(curr) ? branes[i](curr, prev, target) : null;
-
-    return curr;
+    changedTouch.timeStamp = currTimeStamp;
+    changedTouch.prevTimeStamp = maybe(prevTouch.prevTimeStamp, currTimeStamp);
+    changedTouch.origTimeStamp = maybe(prevTouch.origTimeStamp, currTimeStamp);
   }
 
-  return maybeLayer;
+  return currTouchEvent;
 }
 
-function timeout(ms) {
-  return accumulatable(function accumulateTimeout(next, initial) {
-    var accumulated = initial;
+// Augment a list of touches in `currTouchEvent`. Used by `augmentTouchEvents`.
+function augmentTouches_(prevTouchEvent, currTouchEvent) {
+  // Pick touchlist we're going to iterate over. If we have no previous touch
+  // event, we'll iterate over the current set of touches, so they have
+  // initial values. In all other cases, we want to iterate over the
+  // previous touches so as to compare them with current touches and derive
+  // what has changed.
+  var touches = isNullish(prevTouchEvent) ?
+    currTouchEvent.touches : prevTouchEvent.touches;
 
-    // Accumulate the first interval.
-    accumulated = next(accumulated, Date.now());
-
-    setTimeout(function onInterval() {
-      next(accumulated, end);
-    }, ms);
-  });
+  // Mutate current touch events, then return list of touches to become next
+  // `prevTouchEvent`.
+  return reduceIndexed(touches, augmentTouch_, currTouchEvent);
 }
 
-function updateDissolveOut(element) {
-  element.style.opacity = 0;
-}
-
-function exitDissolveOut(element) {
-  element.style.transition = 'none';
-  element.style.display = 'none';
-  return element;
-}
-
-function dissolveOut(element, trigger, ms, easing) {
-  // Create `enter` transition from arguments.
-  function enterDissolveOut(element) {
-    element.style.opacity = 1;
-    element.style.display = 'block';
-    element.style.transition = 'opacity ' + ms + 'ms ' + easing;
-    return element;
-  }
-
-  write(element, trigger, function updateTrigger(element) {
-    var time = timeout(ms + 100);
-    write(element, time, updateDissolveOut, enterDissolveOut, exitDissolveOut);
-  });
-}
-
-function updateDissolveIn(element) {
-  element.style.opacity = 1;
-}
-
-function exitDissolveIn(element) {
-  element.style.transition = 'none';
-  return element;
-}
-
-function dissolveIn(element, trigger, ms, easing) {
-  // Create `enter` transition from argumentse
-  function enterDissolveIn(element) {
-    element.style.display = 'block';
-    element.style.opacity = 0;
-    element.style.transition = 'opacity ' + ms + 'ms ' + easing;
-    // @hack forces style resolution. Gross!
-    // See https://bugzilla.mozilla.org/show_bug.cgi?id=649247.
-    element.clientTop;
-    return element;
-  }
-
-  write(element, trigger, function updateTrigger(element) {
-    var time = timeout(ms + 100);
-    write(element, time, updateDissolveIn, enterDissolveIn, exitDissolveIn);
-  });
-}
-
-// Turns touchstart, touchmove, touchend cycles into a linked list of events.
-// Note that touchmove event fires every time, but linked list node is
-// mutated to reduce garbage. This means the resulting object will
-// eventually contain just 3 nodes: touchstart, last touchmove, touched.
-function drags(touchstarts, touchmoves, touchcancels, touchends) {
-  // Merge all touch types into a single stream.
-  // @TODO getting duplicate touchends for some reason. Need to investigate.
-  var cycles = dropRepeats(merge([touchstarts, touchmoves, touchcancels, touchends]));
-  return reductions(cycles, function reduceDrag(before, event) {
-    // Previous event is called `next` in accord with linked list convention.
-    // See <https://en.wikipedia.org/wiki/Linked_list>.
-
-    // Break off new chain every touchstart.
-    if (event.type === 'touchstart')
-      return node(event);
-
-    // Subsequent touchmoves.
-    if (event.type === 'touchmove' && value(before).type === 'touchmove')
-      // Branch off of previous touchmove node's parent. Should be a touchstart.
-      // This allows previous touchmoves to be garbaged.
-      return node(event, list.next(before));
-
-    // First touchmove, end and cancel.
-    return node(event, before);
-  });
-}
-
-function isFullCycle(node) {
-  return (
-    (value(node).type === 'touchend' || value(node).type === 'touchcancel') &&
-    value(head(node)).type === 'touchstart'
-  );
+// Mutate touches in a spread of touch events, adding properties that allow
+// for velocity verlet calculations.
+//
+// * prevScreenX
+// * prevScreenY
+//
+// @TODO augment with prevTimeStamp to allow for velocity verlet calculation.
+// @TODO augment touch with uniqueIdentifier
+function augmentTouchEvents(touchEvents) {
+  // It is important that reductions() use hub() here, or multiple reductions
+  // of source will cause `prevTouchEvent` to be incorrect.
+  return hub(reductions(touchEvents, augmentTouches_, null));
 }
 
 function touchDistanceY(touch0, touch1) {
@@ -594,69 +557,50 @@ function inRange(number, less, more) {
   return (number >= less) && (number <= more);
 }
 
-// Given an x/y coord, determine if point is within the RocketBar's touch zone.
-// This is an irregularly shaped hot zone.
-// @TODO take y direction into account when calculating hotzone.
-// @TODO need a second function to handle RocketBar in expanded mode.
-function isInRocketBarCollapsedHotzone(x, y, screenW) {
-  return (
-    // Inside of the status bar box
-    (inRange(x, 0, screenW - 100) && inRange(y, 0, 20)) ||
-    // The "extra" fuzzy space below that doesn't overlap with button area of
-    // app header.
-    (inRange(x, 40, screenW - 100) && inRange(y, 20, 40))
-  );
-}
-
 // Given x/y coord, determine if point is within screen bottom touch zone.
 // @TODO take y direction into account when calculating hotzone.
-function isInscreenBottomHotzone(x, y, prevX, prevY, screenW, screenH) {
+function isInScreenBottomEdge(x, y, screenW, screenH) {
   return (
     (inRange(x, 0, screenW) && inRange(y, screenH - 20, screenH))
   );
 }
 
+function isTouchEventFromScreenBottomEdge(event) {
+  var firstTouch = event.changedTouches[0];
+  var x = firstTouch.origScreenX;
+  var y = firstTouch.origScreenY;
+  return isInScreenBottomEdge(x, y, screen.width, screen.height);
+}
+
+function isEventInScreenBottomEdge(event) {
+  var firstTouch = event.touches[0];
+  var x = firstTouch.screenX;
+  var y = firstTouch.screenY;
+  return isInScreenBottomEdge(x, y, screen.width, screen.height);
+}
+
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
-function isTap(node) {
-  // Calculate y distance moved using touchstart event and last touchmove.
-  // @TODO if we can accurately get a good read using just velocity, it
-  // becomes unnecessary to keep `start` and maybe `end`.
-  var touchStartFirstTouch = value(head(node)).touches[0];
-  var mostRecentTouches = value(find(node, hasTouches)).touches[0];
-
-  var distanceMoved = touchDistanceY(
-    touchStartFirstTouch,
-    mostRecentTouches
+function isTap(event) {
+  var firstTouch = event.changedTouches[0];
+  return (
+    (firstTouch.screenX - firstTouch.prevScreenX) === 0 &&
+    (firstTouch.screenY - firstTouch.prevScreenY) === 0
   );
-
-  // Filter out touch cycle that moved more than 20px.
-  return distanceMoved < 10;
 }
 
-// Convert every item in a spread into given value.
-function becomes(spread, value) {
-  return reductions(spread, id, value);
-}
-
-function makeAddClass(className) {
-  function addMemoizedClassTo(element) {
-    return dom.addClass(element, className);
+// Create a predicate function to determine if given event has `n` changed
+// touches.
+function withFingers(n) {
+  function isTouchEventWithNFingers(event) {
+    return event && event.changedTouches && event.changedTouches.length === n;
   }
-  return addMemoizedClassTo;
+  return isTouchEventWithNFingers;
 }
 
-function makeRemoveClass(className) {
-  function removeMemoizedClassFrom(element) {
-    return dom.removeClass(element, className);
-  }
-  return removeMemoizedClassFrom;
-}
-
-function makeToggleClass(className) {
-  function toggleMemoizedClassOn(element) {
-    return dom.toggleClass(element, className);
-  }
-  return toggleMemoizedClassOn;
+function haltEvent_(event) {
+  event.stopPropagation();
+  if (!event.defaultPrevented) event.preventDefault();
+  return event;
 }
 
 function app(window) {
@@ -665,147 +609,183 @@ function app(window) {
   var touchmoves = on(window, 'touchmove');
   var touchends = on(window, 'touchend');
   var touchcancels = on(window, 'touchcancel');
+  var touchEvents = merge([touchstarts, touchmoves, touchcancels, touchends]);
+  var augTouchEvents = augmentTouchEvents(touchEvents);
+  var augTouchstops = filter(augTouchEvents, isEventStop);
+  var augTouchmoves = filter(augTouchEvents, isEventMove);
 
-  var windowDrags = drags(touchstarts, touchmoves, touchcancels, touchends);
+  var bottomEdgeTouchmoves = filter(augTouchmoves, isTouchEventFromScreenBottomEdge);
+  var bottomEdgeSingleTouchmoves = filter(bottomEdgeTouchmoves, withFingers(1));
 
-  var windowCycles = filter(windowDrags, isFullCycle);
+  var firstBottomEdgeSingleTouchmoves = asserts(bottomEdgeSingleTouchmoves, function(prev, curr) {
+    // We're only interested in single touch cases for this spread.
+    if (curr.touches.length > 1) return false;
 
-  // Touchcyles which begin in RocketBar hotzone.
-  var rbCycles = filter(windowCycles, function (node) {
-    var firstTouch = value(head(node)).touches[0];
-    return isInRocketBarCollapsedHotzone(
-      firstTouch.screenX,
-      firstTouch.screenY,
-      screen.width
+    // Handle first case, where prev is null.
+    if (!prev) return true;
+
+    var currTouch = curr.changedTouches[0];
+    var prevTouch = getTouchById(prev.touches, currTouch.identifier);
+
+    // If this is the first time touch appeared, return true.
+    if (!prevTouch) return true;
+
+    return (
+      // If identifiers don't match, these are definitely different.
+      // However, Firefox (and maybe other browsers) recycle identifiers,
+      prevTouch.identifier !== currTouch.identifier ||
+      // so in addition, we check the original timestamp.
+      prevTouch.origTimeStamp !== currTouch.origTimeStamp
     );
   });
+
+  var rbTouchstops = filter(augTouchstops, withTargetId('rb-rocketbar'));
 
   // Taps on RocketBar are any swipe that covers very little ground.
-  var rbTaps = filter(rbCycles, isTap);
-
-  // Swipes on RocketBar are anything else.
-  // @TODO if ergo of swipable area is feeling bad, can create separate
-  // touchcycle that expands hotzone based on direction of swipe.
-  var rbSwipes = reject(rbCycles, isTap);
+  var rbTaps = filter(rbTouchstops, isTap);
+  var rbSwipes = reject(rbTouchstops, isTap);
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
-  // Prevent default on all rbCancel touch starts.
-  var rbCancelPreventedTouchStarts = invoke(rbCancelTouchstarts, 'preventDefault');
 
-  // Overlay's diff should include shrinking the RocketBar in cases where not
-  // in Task Manager mode. Need to use sample().
   var rbOverlayTouchstarts = filter(touchstarts, withTargetId('rb-overlay'));
 
-  // Map to states
+  var rbBlurs = merge([rbCancelTouchstarts, rbOverlayTouchstarts]);
 
-  var rbFocuses = becomes(rbTaps, {
-    is_mode_rocketbar_focused: true
-  });
+  var setIconTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
+  var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
+  var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
 
-  // @TODO I may have to do some sampling against current state to determine
-  // if RB stays expanded.
-  var rbBlurs = becomes(merge([rbCancelPreventedTouchStarts, rbOverlayTouchstarts]), {
-    is_mode_rocketbar_focused: false
-  });
+  var hsKitTouchstarts = filter(touchstarts, withTargetId('hs-kitsilano-hotzone'));
 
-  var toModeTaskManager = becomes(rbSwipes, {
-    is_mode_task_manager: true
-  });
-
-  // @TODO loaded URL, scrolling homescreen, etc.
-  var rbShrinking = null;
-
-  // @TODO loading URL, other cases that are independent of modes.
-  var rbExpanding = null;
-
-  var setTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
-
-  var toSetPanel = map(setTouchstarts, function (event) {
-    return { settings_panel_triggered: event };
-  });
-
-  var allDiffs = merge([rbFocuses, rbBlurs, toModeTaskManager, toSetPanel]);
-
-  // Merge into global state object.
-  var updates = patches(allDiffs, {
-    // @TODO rocketbar expands with task manager mode, but expansion is
-    // independent (loading, homescreen etc).
-    is_mode_task_manager: false,
-    is_mode_rocketbar_focused: false,
-    is_rocketbar_showing_results: false,
-    settings_panel_triggered: null
-  });
+  // @TODO this obviously only works when we only have one sheet in task
+  // manager.
+  var headSheetTouchstarts = filter(touchstarts, withTargetClass('sh-cover'));
 
   var keyboardEl = document.getElementById('sys-fake-keyboard');
-
-  // Build in
-  var keyboardActivations = membrane(updates, layer(
-    changed('is_mode_rocketbar_focused', true),
-    maybe('js-activated')
-  ));
-  write(keyboardEl, keyboardActivations, dom.addClass);
-
-  // Build out
-  var keyboardDeactivations = membrane(updates, layer(
-    changed('is_mode_rocketbar_focused', false),
-    maybe('js-activated')
-  ));
-  write(keyboardEl, keyboardDeactivations, dom.removeClass);
-
-
-  var toRbFocusedFromAnywhere = membrane(updates, changed('is_mode_rocketbar_focused', true));
-  var toRbBlurred = membrane(updates, changed('is_mode_rocketbar_focused', false));
-
   var rbOverlayEl = document.getElementById('rb-overlay');
-
-  dissolveIn(rbOverlayEl, toRbFocusedFromAnywhere, 200, 'ease-out');
-  dissolveOut(rbOverlayEl, toRbBlurred, 200, 'ease-out');
-
-  var whenRbExpandedChange = membrane(updates, function (curr, prev) {
-    var relevantUpdates = (
-      isUpdated(curr, prev, 'is_mode_rocketbar_focused') ||
-      isUpdated(curr, prev, 'is_mode_task_manager')
-    );
-
-    if (!relevantUpdates) return null;
-
-    // Expanded state is interdependant on various states.
-    // Derive expanded state from global state.
-    var isExpanded = (
-      isChanged(curr, prev, 'is_mode_rocketbar_focused', true) ||
-      isCurrently(curr, prev, 'is_mode_task_manager', true)
-    );
-
-    // Return derived state.
-    return isExpanded;
-  });
-
   var rbRocketbarEl = document.getElementById('rb-rocketbar');
-
-  write(rbRocketbarEl, whenRbExpandedChange, function (target, isExpanded) {
-    if(isExpanded) dom.addClass(target, 'js-expanded');
-    else dom.removeClass(target, 'js-expanded');
-  });
-
   var rbCancelEl = document.getElementById('rb-cancel');
-  addClass(rbCancelEl, toRbBlurred, 'js-hide');
-  removeClass(rbCancelEl, toRbFocusedFromAnywhere, 'js-hide');
+  var tmEl = document.getElementById('tm-task-manager');
+  var activeSheetEl = document.getElementById('sh-sheet-000000');
+  var setPanelEl = document.getElementById('set-settings');
+  var setOverlayEl = document.getElementById('set-overlay');
+  var bodyEl = document.getElementById('sys-screen');
+  var hsEl = document.getElementById('hs-homescreen');
 
-  var activeSheet = $('.sh-head');
-  var toModeTaskManagerFromAnywhere = membrane(updates, changed('is_mode_task_manager', true));
-  addClass(activeSheet, toModeTaskManagerFromAnywhere, 'sh-scaled');
-
-  // Build in/out
-  var settingsPanelEl = document.getElementById('set-settings');
-  var settingsToggles = membrane(updates, updated('settings_panel_triggered'));
-  write(settingsPanelEl, settingsToggles, function (target, state) {
-    var event = state.settings_panel_triggered;
-    event.preventDefault();
-    event.stopPropagation();
-    dom.toggleClass(target, 'js-hide');
+  var rbFocusWrites = write({
+    keyboard: keyboardEl,
+    overlay: rbOverlayEl,
+    cancel: rbCancelEl,
+    rocketbar: rbRocketbarEl
+  }, rbTaps, function (els, event) {
+    addClass(els.rocketbar, 'js-expanded');
+    addClass(els.keyboard, 'js-activated');
+    removeClass(els.cancel, 'js-hide');
+    removeClass(els.overlay, 'js-hide');
   });
 
-  return updates;
+  function updateBlurRocketbar(els, event) {
+    event = haltEvent_(event);
+    removeClass(els.keyboard, 'js-activated');
+    addClass(els.cancel, 'js-hide');
+    addClass(els.overlay, 'js-hide');
+
+    // Collapse (or not) per current task manager status.
+    if (!hasClass(els.body, 'tm-mode'))
+      removeClass(els.rocketbar, 'js-expanded');
+  }
+
+  var rbBlurWrites = write({
+    keyboard: keyboardEl,
+    overlay: rbOverlayEl,
+    cancel: rbCancelEl,
+    rocketbar: rbRocketbarEl,
+    body: bodyEl
+  }, rbBlurs, updateBlurRocketbar);
+
+  var toTmWrites = write({
+    body: bodyEl,
+    head: activeSheetEl,
+    rocketbar: rbRocketbarEl
+  }, rbSwipes, function (els, event) {
+    addClass(els.body, 'tm-mode');
+    addClass(els.rocketbar, 'js-expanded');
+    addClass(els.head, 'sh-scaled');
+  });
+
+  var fromTmToSheetWrites = write({
+    body: bodyEl,
+    head: activeSheetEl,
+    rocketbar: rbRocketbarEl
+  }, headSheetTouchstarts, function (els, event) {
+    removeClass(els.body, 'tm-mode');
+    removeClass(els.head, 'sh-scaled');
+    removeClass(els.rocketbar, 'js-expanded');
+  });
+
+  function updateSetPanelClose(els, event) {
+    addClass(els.panel, 'js-hide');
+    addClass(els.overlay, 'js-hide');
+  }
+
+  function updateSetPanelOpen(els, event) {
+    removeClass(els.panel, 'js-hide');
+    removeClass(els.overlay, 'js-hide');
+  }
+
+  var setPanelWrites = write({
+    panel: setPanelEl,
+    overlay: setOverlayEl
+  }, setEvents, function (els, event) {
+    event = haltEvent_(event);
+
+    if (event.target.id === 'set-overlay') updateSetPanelClose(els, event);
+    else if (!hasClass(els.panel, 'js-hide')) updateSetPanelClose(els, event);
+    else updateSetPanelOpen(els, event);
+  });
+
+  var toHomeWrites = write({
+    home: hsEl,
+    manager: tmEl,
+    keyboard: keyboardEl,
+    overlay: rbOverlayEl,
+    cancel: rbCancelEl,
+    rocketbar: rbRocketbarEl,
+    body: bodyEl
+  }, firstBottomEdgeSingleTouchmoves, function (els, event) {
+    haltEvent_(event);
+
+    go(concat([
+      scaleOut(els.manager, 800, 'linear'),
+      fadeIn(els.home, 600, 'ease-out')
+    ]));
+
+    updateBlurRocketbar(els, event);
+  });
+
+  var fromHomeToSheetWrites = write({
+    home: hsEl,
+    manager: tmEl
+  }, hsKitTouchstarts, function (els, event) {
+    haltEvent_(event);
+
+    go(concat([
+      fadeOut(els.home, 600, 'linear'),
+      scaleIn(els.manager, 800, 'ease-out')
+    ]));
+  });
+
+  // Merge all accumulatable spreads so they will begin accumulation at same
+  // moment.
+  return merge([
+    rbFocusWrites,
+    rbBlurWrites,
+    setPanelWrites,
+    toTmWrites,
+    fromTmToSheetWrites,
+    toHomeWrites,
+    fromHomeToSheetWrites
+  ]);
 }
 
 print(app(window));

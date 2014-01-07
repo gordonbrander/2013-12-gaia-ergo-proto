@@ -114,6 +114,13 @@ function accumulators(_, exports) {
   exports.isMethodAt = isMethodAt;
 
 
+  // Determine if `thing` is null-ish (uses non-strict comparison).
+  function isNullish(thing) {
+    return thing == null;
+  }
+  exports.isNullish = isNullish;
+
+
   // End is our token that represents the end of an accumulatable.
   // `accumulatable`s can pass this token as the last item to denote they are
   // finished sending values. Accumulating `next` functions may also return `end`
@@ -134,24 +141,21 @@ function accumulators(_, exports) {
   // any turn of the event loop.
   function accumulate(spread, next, initial) {
     // If spread is accumulatable, call accumulate method.
-    isMethodAt(spread, 'accumulate') ?
-      spread.accumulate(next, initial) :
-      // ...otherwise, if spread has a reduce method, fall back to accumulation
-      // with reduce, then call `next` with `end` token and result of reduction.
-      // Reducible spreads are expected to return a value for `reduce`.
-      isMethodAt(spread, 'reduce') ?
-        next(spread.reduce(next, initial), end) :
-        // ...otherwise, if spread is nullish, end. `null` is considered to be
-        // an empty spread (akin to an empty array). This approach takes
-        // inspiration from Lisp dialects, where `null` literally _is_ an empty
-        // list. It also just makes sense: `null` is a non-value, and should
-        // not accumulate.
-        spread == null ?
-          next(initial, end) :
-          // ...otherwise, call `next` with value, then `end`. I.e, values
-          // without a `reduce`/`accumulate` method are treated as a spread
-          // containing one item.
-          next(next(initial, spread), end);
+    if(isMethodAt(spread, 'accumulate')) spread.accumulate(next, initial);
+    // ...otherwise, if spread has a reduce method, fall back to accumulation
+    // with reduce, then call `next` with `end` token and result of reduction.
+    // Reducible spreads are expected to return a value for `reduce`.
+    else if (isMethodAt(spread, 'reduce')) next(spread.reduce(next, initial), end);
+    // ...otherwise, if spread is nullish, end. `null` is considered to be
+    // an empty spread (akin to an empty array). This approach takes
+    // inspiration from Lisp dialects, where `null` literally _is_ an empty
+    // list. It also just makes sense: `null` is a non-value, and should
+    // not accumulate.
+    else if (isNullish(spread)) next(initial, end);
+    // ...otherwise, call `next` with value, then `end`. I.e, values
+    // without a `reduce`/`accumulate` method are treated as a spread
+    // containing one item.
+    else next(next(initial, spread), end);
   }
   exports.accumulate = accumulate;
 
@@ -308,19 +312,20 @@ function accumulators(_, exports) {
   // Transform a spread, reducing values from the spread's `item`s using `xf`, a
   // reducer function. Returns a new accumulatable spread containing the
   // reductions for each step.
+  //
+  // @TODO return accumulatable for reductions should probably always be
+  // transformed with `hub()`.
   function reductions(spread, xf, initial) {
     var reduction = initial;
 
     return accumulatable(function accumulateReductions(next, initial) {
       // Define a `next` function for accumulation.
       function nextReduction(accumulated, item) {
-        reduction = xf(reduction, item);
-
         return item === end ?
           next(accumulated, end) :
-          // If item is not `end`, pass accumulated value to next along with
-          // reduction created by `xf`.
-          next(accumulated, reduction);
+          // If item is not `end`, update state of reduction and accumulate
+          // with it.
+          next(accumulated, reduction = xf(reduction, item));
       }
 
       accumulate(spread, nextReduction, initial);
@@ -352,6 +357,9 @@ function accumulators(_, exports) {
   //
   //     concat([[1, 2, 3], ['a', 'b', 'c']])
   //     >> <1, 2, 3, 'a', 'b', 'c', end>
+  //
+  // @TODO if consumer returns end, concat should end current spread and stop
+  // accumulating future spreads.
   function concat(spread) {
     return accumulatable(function accumulateConcat(next, initial) {
       function nextAppend(a, b) {
@@ -371,8 +379,13 @@ function accumulators(_, exports) {
   //
   //     merge(<<1, 2, 3>, <'a', 'b', 'c'>>)
   //     >> <1, 'a' 2, 3, 'b', 'c', end>
+  //
+  // @TODO if consumer returns end, merge should end all spreads it subsumes.
   function merge(spread) {
     return accumulatable(function accumulateMerge(next, initial) {
+      // We use a closure variable to keep track of accumulation because
+      // multiple spreads will be accumulated using the same
+      // accumulator.
       var accumulated = initial;
       var open = 1;
 
@@ -388,14 +401,17 @@ function accumulators(_, exports) {
       }
 
       accumulate(spread, function nextMerge(_, nested) {
-        // If we have reached the end of the spreads, pass end token
-        // to `forward`.
-        if (nested === end) return forward(null, end);
-
-        // If `nested` item is not end, accumulate it via `forward` and record
-        // that we have opened another spread.
-        open = open + 1;
-        accumulate(nested, forward, null);
+        // If we have reached the end of the spreads, reduce our open count by
+        // one (the spread of spreads is no longer open).
+        if (nested === end) {
+          open = open - 1;
+        }
+        else {
+          // If `nested` item is not end, accumulate it via `forward` and record
+          // that we have opened another spread.
+          open = open + 1;
+          accumulate(nested, forward, null);
+        }
       }, null);
     });
   }
@@ -593,162 +609,6 @@ function accumulators(_, exports) {
   // -------------------------------------------
 
 
-  var __slice__ = Array.prototype.slice;
-  function slice(arraylike, start, end) {
-    return __slice__.call(arraylike, start, end);
-  }
-  exports.slice = slice;
-
-
-  // Check if a `thing` is an object with an own `length` property. This is the
-  // closest proxy to knowing if an object is arraylike.
-  function hasLength(thing) {
-    return thing && thing.hasOwnProperty && thing.hasOwnProperty('length');
-  }
-
-
-  // Get a real array of elements. `element` argument can be a single element,
-  // an arraylike list of elements, or a selector to be queried.
-  function $(element) {
-    // If `element` is actually a selector string, query for elements, then
-    // slice nodeList into true array.
-    if (typeof element === 'string')
-      return slice(document.querySelectorAll(element));
-
-    // If `element` has a length property (it's arraylike), we slice it.
-    // This covers cases where you may want to pass a nodeList to `$`.
-    if (hasLength(element)) return slice(element);
-
-    // Otherwise, we can assume element is just an element. Elements are
-    // accumulatable, so we can just return it.
-    return element;
-  }
-  exports.$ = $;
-
-
-  // Internal higher-order function that expidites creating "setters" that
-  // can operate on multiple items at once. Pass a `setOn` function that looks
-  // like:
-  //
-  //     function setThingOn(value, target) { ... return value; }
-  //
-  // Where `target` is the thing being mutated. Make sure to return `value`!
-  function multisetter(setOn) {
-    var nextSetOn = handleEnd(setOn);
-
-    function multiset(things, value) {
-      accumulate(things, nextSetOn, value);
-      return things;
-    }
-
-    return multiset;
-  }
-
-
-  // Set `innerHtml` on multiple elements.
-  var setHtml = multisetter(function setHtmlOn(html, element) {
-    element.innerHTML = html;
-    return html;
-  });
-  exports.setHtml = setHtml;
-
-
-  // Create writer for settng `innerHtml`.
-  var html = writer(setHtml, $);
-  exports.html = html;
-
-
-  var setText = multisetter(function setTextOn(text, element) {
-    element.textContent = text;
-    return text;
-  });
-  exports.setText = setText;
-
-
-  // React to a spread of text strings, writing text to a spread of elements.
-  // Text is sent via a spread. For example, in pseudo code:
-  //
-  //     var textSpread = <"Good morning!", "Good afternoon!", "Good night!">;
-  //     text('.my-div', textSpread);
-  //
-  // This would change the text of `.my-div` elements to "Good morning!" when
-  // that value is sent in the spread. As "Good afternoon!" and "Good night!"
-  // are sent, the element's text will automatically update 
-  var text = writer(setText, $);
-  exports.text = text;
-
-
-  // Set/remove a single attribute on a single element.
-  function setSingleAttr(element, key, value) {
-    // If value is nullish, remove the attribute.
-    if (value == null) element.removeAttribute(key);
-    // Otherwise, set the attribute.
-    else element.setAttribute(key, value);
-    return element;
-  }
-
-
-  var setAttr = multisetter(function setAttrOn(attr, element) {
-    for (var key in attr) setSingleAttr(element, key, attr[key]);
-    return attr;
-  });
-  exports.setAttr = setAttr;
-
-
-  // React to a spread of attributes, writing attributes to a spread of
-  // elements. Attributes are sent via spread as objects, where key is the
-  // attribute key and value is the attribute value. For example:
-  //
-  //     var attrSpread = <{ checked: 'checked' }, { 'checked': null }>;
-  //     attr('.my-checkbox', attrSpread);
-  //
-  // Would add `checked="checked"` to any `.my-checkbox` elements when the
-  // first object is sent in the spread. When the second object is sent, the
-  // `checked` attribute would be removed.
-  var attr = writer(setAttr, $);
-  exports.attr = attr;
-
-
-  var setAddClass = multisetter(function addClassTo(elementClass, element) {
-    var prevElementClass = element.className;
-    if (prevElementClass.indexOf(elementClass) === -1)
-      element.className = prevElementClass + ' ' + elementClass;
-    return elementClass;
-  });
-  exports.setAddClass = setAddClass;
-
-
-  var setRemoveClass = multisetter(function removeClassFrom(elementClass, element) {
-    var old = element.className;
-    var pattern = RegExp(elementClass, 'g');
-    element.className = old.replace(pattern, '');
-    return elementClass;
-  });
-  exports.setRemoveClass = setRemoveClass;
-
-
-  // Add a class from an element every time a value appears in
-  // `trigger` spread.
-  function addClass(target, trigger, className) {
-    function updateAddClass(target) {
-      return setAddClass(target, className);
-    }
-    write(target, trigger, updateAddClass);
-  }
-  exports.addClass = addClass;
-
-
-  // Remove a class from an element every time a value appears in
-  // `trigger` spread.
-  function removeClass(target, trigger, className) {
-    function updateRemoveClass(target) {
-      return setRemoveClass(target, className);
-    }
-    write(target, trigger, updateRemoveClass);
-  }
-  exports.removeClass = removeClass;
-
-
   // A wrapper for [requestAnimationFrame][raf], patching up browser support and
   // preventing exceptions in non-browser environments (node).
   //
@@ -787,18 +647,26 @@ function accumulators(_, exports) {
 
   // Open a spread representing events over time on an element.
   // Returns an accumulatable spread.
-  function on(element, event) {
+  function on(element, type, useCapture) {
     // Since we want to avoid opening up multiple event listeners on the element,
     // we use `hub()` to allow for multiple reductions of one spread.
     return hub(accumulatable(function accumulateEventListener(next, initial) {
+      // coerce useCapture to boolean. useCapture defaults to false when not
+      // defined, per standard behavior.
+      useCapture = !!useCapture;
       var accumulated = initial;
 
       function listener(event) {
         accumulated = next(accumulated, event);
-        if(accumulated === end) element.removeEventListener(listener);
+
+        if (accumulated === end)
+          // Remove event listener if consumer says its finished. Make sure
+          // to include useCapture, because different values for useCapture
+          // are considered different listeners.
+          element.removeEventListener(type, listener, useCapture);
       }
 
-      element.addEventListener(event, listener);
+      element.addEventListener(type, listener, useCapture);
     }));
   }
   exports.on = on;
