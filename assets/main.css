@@ -230,6 +230,8 @@ video {
 .tm-task-manager {
   background: #484848;
   height: 460px;
+  /* Perspective for shrinking sheets. */
+  perspective: 100px;
   position: absolute;
   top: 20px;
   width: 320px;
@@ -255,7 +257,7 @@ video {
 }
 
 .sh-scaled {
-  transform: scale(.8);
+  transform: translateZ(-40px);
 }
 
 /* Transparent cover over sheet that is hidden when zoomed in. */
