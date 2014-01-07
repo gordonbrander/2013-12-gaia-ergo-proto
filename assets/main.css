@@ -207,9 +207,9 @@ video {
 ----------------------------------------------------------------------------- */
 
 .hs-homescreen {
-  background-image: url(home.png);
   background-size: 320px;
-  height: 790px;
+  height: 460px;
+  overflow: auto;
   position: absolute;
   top: 20px;
   width: 320px;
