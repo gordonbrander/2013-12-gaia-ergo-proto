@@ -241,12 +241,17 @@ video {
 
 .sh-sheet {
   height: 460px;
-  overflow: auto;
   position: absolute;
   top: 0;
   transition: 200ms transform linear;
   width: 320px;
   z-index: 300;
+}
+
+.sh-frame {
+  height: 460px;
+  overflow: auto;
+  width: 320px;
 }
 
 .sh-scaled {
