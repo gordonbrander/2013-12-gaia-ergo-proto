@@ -312,19 +312,20 @@ function accumulators(_, exports) {
   // Transform a spread, reducing values from the spread's `item`s using `xf`, a
   // reducer function. Returns a new accumulatable spread containing the
   // reductions for each step.
+  //
+  // @TODO return accumulatable for reductions should probably always be
+  // transformed with `hub()`.
   function reductions(spread, xf, initial) {
     var reduction = initial;
 
     return accumulatable(function accumulateReductions(next, initial) {
       // Define a `next` function for accumulation.
       function nextReduction(accumulated, item) {
-        reduction = xf(reduction, item);
-
         return item === end ?
           next(accumulated, end) :
-          // If item is not `end`, pass accumulated value to next along with
-          // reduction created by `xf`.
-          next(accumulated, reduction);
+          // If item is not `end`, update state of reduction and accumulate
+          // with it.
+          next(accumulated, reduction = xf(reduction, item));
       }
 
       accumulate(spread, nextReduction, initial);
@@ -356,6 +357,9 @@ function accumulators(_, exports) {
   //
   //     concat([[1, 2, 3], ['a', 'b', 'c']])
   //     >> <1, 2, 3, 'a', 'b', 'c', end>
+  //
+  // @TODO if consumer returns end, concat should end current spread and stop
+  // accumulating future spreads.
   function concat(spread) {
     return accumulatable(function accumulateConcat(next, initial) {
       function nextAppend(a, b) {
@@ -375,8 +379,13 @@ function accumulators(_, exports) {
   //
   //     merge(<<1, 2, 3>, <'a', 'b', 'c'>>)
   //     >> <1, 'a' 2, 3, 'b', 'c', end>
+  //
+  // @TODO if consumer returns end, merge should end all spreads it subsumes.
   function merge(spread) {
     return accumulatable(function accumulateMerge(next, initial) {
+      // We use a closure variable to keep track of accumulation because
+      // multiple spreads will be accumulated using the same
+      // accumulator.
       var accumulated = initial;
       var open = 1;
 
@@ -638,18 +647,26 @@ function accumulators(_, exports) {
 
   // Open a spread representing events over time on an element.
   // Returns an accumulatable spread.
-  function on(element, event) {
+  function on(element, type, useCapture) {
     // Since we want to avoid opening up multiple event listeners on the element,
     // we use `hub()` to allow for multiple reductions of one spread.
     return hub(accumulatable(function accumulateEventListener(next, initial) {
+      // coerce useCapture to boolean. useCapture defaults to false when not
+      // defined, per standard behavior.
+      useCapture = !!useCapture;
       var accumulated = initial;
 
       function listener(event) {
         accumulated = next(accumulated, event);
-        if(accumulated === end) element.removeEventListener(listener);
+
+        if (accumulated === end)
+          // Remove event listener if consumer says its finished. Make sure
+          // to include useCapture, because different values for useCapture
+          // are considered different listeners.
+          element.removeEventListener(type, listener, useCapture);
       }
 
-      element.addEventListener(event, listener);
+      element.addEventListener(type, listener, useCapture);
     }));
   }
   exports.on = on;
