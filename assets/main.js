@@ -230,19 +230,22 @@ define('animation', function (require, exports) {
     return element;
   }
 
+  function last(next, accumulated) {
+    // Accumulate next with end.
+    next(accumulated, end);
+    // Ensure return of end.
+    return end;
+  }
+
   function onAnimationEvents(element) {
     return accumulatable(function accumulateAnimationEvents(next, initial) {
-      var events = merge([
-        on(element, 'animationstart'),
-        on(element, 'animationend'),
-        on(element, 'animationiteration')
-      ]);
+      var events = on(element, 'animationend');
 
       accumulate(events, function nextAnimationEvent(accumulated, event) {
         accumulated = next(accumulated, event);
-        // If event is animation end, end spread. This will also clean up event
-        // listeners on element.
-        return (event.type === 'animationend') ? next(accumulated, end) : accumulated;
+        // End listener as soon as animationend event comes through.
+        next(accumulated, end);
+        return end;
       }, initial);
     });
   }
@@ -276,6 +279,20 @@ define('animation', function (require, exports) {
   }
   exports.build = build;
 
+  function enterScaleIn(target) {
+    target.style.display = 'block';
+    target.style.opacity = '0';
+    return target;
+  }
+
+  function exitScaleIn(target) {
+    target.style.opacity = '1';
+    return target;
+  }
+
+  var scaleIn = build('scale-in', enterScaleIn, exitScaleIn);
+  exports.scaleIn = scaleIn;
+
   function exitScaleOut(target) {
     target.style.display = 'none';
     return target;
@@ -297,6 +314,20 @@ define('animation', function (require, exports) {
 
   var fadeIn = build('fade-in', enterFadeIn, exitFadeIn);
   exports.fadeIn = fadeIn;
+
+  function enterFadeOut(element) {
+    element.style.display = 'block';
+    element.style.opacity = '1';
+    return element;
+  }
+
+  function exitFadeOut(element) {
+    element.style.display = 'none';
+    return element;
+  }
+
+  var fadeOut = build('fade-out', enterFadeOut, exitFadeOut);
+  exports.fadeOut = fadeOut;
 
   return exports;
 });
@@ -402,6 +433,8 @@ var anim = require('animation');
 var animation = anim.animation;
 var scaleOut = anim.scaleOut;
 var fadeIn = anim.fadeIn;
+var scaleIn = anim.scaleIn;
+var fadeOut = anim.fadeOut;
 
 // Check if an event is an ending event (cancel or end).
 function isEventStop(event) {
@@ -592,6 +625,9 @@ function app(window) {
   var bottomEdgeSingleTouchmoves = filter(bottomEdgeTouchmoves, withFingers(1));
 
   var firstBottomEdgeSingleTouchmoves = asserts(bottomEdgeSingleTouchmoves, function(prev, curr) {
+    // We're only interested in single touch cases for this spread.
+    if (curr.touches.length > 1) return false;
+
     // Handle first case, where prev is null.
     if (!prev) return true;
 
@@ -625,6 +661,8 @@ function app(window) {
   var setIconTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
   var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
   var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
+
+  var hsKitTouchstarts = filter(touchstarts, withTargetId('hs-kitsilano-hotzone'));
 
   // @TODO this obviously only works when we only have one sheet in task
   // manager.
@@ -725,16 +763,36 @@ function app(window) {
     haltEvent_(event);
 
     go(concat([
-      scaleOut(els.manager, 400, 'ease-in'),
-      fadeIn(els.home, 800, 'ease-out')
+      scaleOut(els.manager, 800, 'linear'),
+      fadeIn(els.home, 600, 'ease-out')
     ]));
 
     updateBlurRocketbar(els, event);
   });
 
+  var fromHomeToSheetWrites = write({
+    home: hsEl,
+    manager: tmEl
+  }, hsKitTouchstarts, function (els, event) {
+    haltEvent_(event);
+
+    go(concat([
+      fadeOut(els.home, 600, 'linear'),
+      scaleIn(els.manager, 800, 'ease-out')
+    ]));
+  });
+
   // Merge all accumulatable spreads so they will begin accumulation at same
   // moment.
-  return merge([rbFocusWrites, rbBlurWrites, setPanelWrites, toTmWrites, fromTmToSheetWrites, toHomeWrites]);
+  return merge([
+    rbFocusWrites,
+    rbBlurWrites,
+    setPanelWrites,
+    toTmWrites,
+    fromTmToSheetWrites,
+    toHomeWrites,
+    fromHomeToSheetWrites
+  ]);
 }
 
 print(app(window));

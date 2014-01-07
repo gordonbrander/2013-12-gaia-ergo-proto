@@ -211,6 +211,14 @@ video {
   z-index: 1;
 }
 
+#hs-kitsilano-hotzone {
+  height: 75px;
+  left: 18px;
+  position: absolute;
+  top: 105px;
+  width: 60px;
+}
+
 /* Task manager .tm-
 ----------------------------------------------------------------------------- */
 
