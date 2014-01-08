@@ -97,6 +97,16 @@ video {
   overflow: hidden;
 }
 
+/* Hot area for bottom swipes */
+#sys-gesture-panel-bottom {
+  border-radius: 50% 50% 0 0;
+  bottom: 0;
+  height: 20px;
+  position: absolute;
+  width: 100%;
+  z-index: 1000;
+}
+
 /* Use with .ir */
 .sys-fake-keyboard {
   background-image: url(keyboard.png);
