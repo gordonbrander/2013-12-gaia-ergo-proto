@@ -97,6 +97,16 @@ video {
   overflow: hidden;
 }
 
+/* Hot area for bottom swipes */
+#sys-gesture-panel-bottom {
+  border-radius: 50% 50% 0 0;
+  bottom: 0;
+  height: 35px;
+  position: absolute;
+  width: 100%;
+  z-index: 1000;
+}
+
 /* Use with .ir */
 .sys-fake-keyboard {
   background-image: url(keyboard.png);
@@ -207,9 +217,9 @@ video {
 ----------------------------------------------------------------------------- */
 
 .hs-homescreen {
-  background-image: url(home.png);
   background-size: 320px;
-  height: 790px;
+  height: 460px;
+  overflow: auto;
   position: absolute;
   top: 20px;
   width: 320px;
@@ -230,6 +240,8 @@ video {
 .tm-task-manager {
   background: #484848;
   height: 460px;
+  /* Perspective for shrinking sheets. */
+  perspective: 100px;
   position: absolute;
   top: 20px;
   width: 320px;
@@ -255,7 +267,7 @@ video {
 }
 
 .sh-scaled {
-  transform: scale(.8);
+  transform: translateZ(-40px);
 }
 
 /* Transparent cover over sheet that is hidden when zoomed in. */

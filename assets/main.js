@@ -547,36 +547,6 @@ function augmentTouchEvents(touchEvents) {
   return hub(reductions(touchEvents, augmentTouches_, null));
 }
 
-function touchDistanceY(touch0, touch1) {
-  y1 = touch0.screenY;
-  y2 = touch1.screenY;
-  return (y2 - y1);
-}
-
-function inRange(number, less, more) {
-  return (number >= less) && (number <= more);
-}
-
-// Given x/y coord, determine if point is within screen bottom touch zone.
-// @TODO take y direction into account when calculating hotzone.
-function isInScreenBottomEdge(x, y, screenW, screenH) {
-  return (
-    (inRange(x, 0, screenW) && inRange(y, screenH - 40, screenH))
-  );
-}
-
-function isTouchEventUpFromBottomEdge(event) {
-  var firstTouch = event.changedTouches[0];
-  var x = firstTouch.origScreenX;
-  var y = firstTouch.origScreenY;
-  return (
-    // Touch is heading up.
-    firstTouch.screenY - firstTouch.prevScreenY < 0 &&
-    // Touch started in bottom edge hot zone.
-    isInScreenBottomEdge(x, y, screen.width, screen.height)
-  );
-}
-
 // Filter tap cycles, determining if a swipe distance was moved during cycle.
 function isTap(event) {
   var firstTouch = event.changedTouches[0];
@@ -612,7 +582,7 @@ function app(window) {
   var augTouchstops = filter(augTouchEvents, isEventStop);
   var augTouchmoves = filter(augTouchEvents, isEventMove);
 
-  var bottomEdgeTouchmoves = filter(augTouchmoves, isTouchEventUpFromBottomEdge);
+  var bottomEdgeTouchmoves = filter(touchmoves, withTargetId('sys-gesture-panel-bottom'));
   var bottomEdgeSingleTouchmoves = filter(bottomEdgeTouchmoves, withFingers(1));
 
   var firstBottomEdgeSingleTouchmoves = asserts(bottomEdgeSingleTouchmoves, function(prev, curr) {
@@ -669,6 +639,7 @@ function app(window) {
   var setOverlayEl = document.getElementById('set-overlay');
   var bodyEl = document.getElementById('sys-screen');
   var hsEl = document.getElementById('hs-homescreen');
+  var bottomEdgeEl = document.getElementById('sys-gesture-panel-bottom');
 
   var rbFocusWrites = write({
     keyboard: keyboardEl,
@@ -749,9 +720,13 @@ function app(window) {
     overlay: rbOverlayEl,
     cancel: rbCancelEl,
     rocketbar: rbRocketbarEl,
-    body: bodyEl
+    body: bodyEl,
+    bottomEdge: bottomEdgeEl
   }, firstBottomEdgeSingleTouchmoves, function (els, event) {
     haltEvent_(event);
+
+    // Remove bottom gesture catcher from play.
+    addClass(els.bottomEdge, 'js-hide');
 
     go(concat([
       scaleOut(els.manager, 800, 'linear'),
@@ -763,9 +738,13 @@ function app(window) {
 
   var fromHomeToSheetWrites = write({
     home: hsEl,
-    manager: tmEl
+    manager: tmEl,
+    bottomEdge: bottomEdgeEl
   }, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
+
+    // Remove bottom gesture catcher from play.
+    removeClass(els.bottomEdge, 'js-hide');
 
     go(concat([
       fadeOut(els.home, 600, 'linear'),
