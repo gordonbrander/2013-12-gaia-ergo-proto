@@ -101,7 +101,7 @@ video {
 #sys-gesture-panel-bottom {
   border-radius: 50% 50% 0 0;
   bottom: 0;
-  height: 20px;
+  height: 35px;
   position: absolute;
   width: 100%;
   z-index: 1000;
