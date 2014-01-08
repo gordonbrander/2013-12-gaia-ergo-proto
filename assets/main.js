@@ -639,6 +639,7 @@ function app(window) {
   var setOverlayEl = document.getElementById('set-overlay');
   var bodyEl = document.getElementById('sys-screen');
   var hsEl = document.getElementById('hs-homescreen');
+  var bottomEdgeEl = document.getElementById('sys-gesture-panel-bottom');
 
   var rbFocusWrites = write({
     keyboard: keyboardEl,
@@ -719,9 +720,13 @@ function app(window) {
     overlay: rbOverlayEl,
     cancel: rbCancelEl,
     rocketbar: rbRocketbarEl,
-    body: bodyEl
+    body: bodyEl,
+    bottomEdge: bottomEdgeEl
   }, firstBottomEdgeSingleTouchmoves, function (els, event) {
     haltEvent_(event);
+
+    // Remove bottom gesture catcher from play.
+    addClass(els.bottomEdge, 'js-hide');
 
     go(concat([
       scaleOut(els.manager, 800, 'linear'),
@@ -733,9 +738,13 @@ function app(window) {
 
   var fromHomeToSheetWrites = write({
     home: hsEl,
-    manager: tmEl
+    manager: tmEl,
+    bottomEdge: bottomEdgeEl
   }, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
+
+    // Remove bottom gesture catcher from play.
+    removeClass(els.bottomEdge, 'js-hide');
 
     go(concat([
       fadeOut(els.home, 600, 'linear'),
