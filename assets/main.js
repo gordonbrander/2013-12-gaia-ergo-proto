@@ -678,20 +678,20 @@ function app(window) {
     addClass(els.rb_overlay, 'js-hide');
 
     // Collapse (or not) per current task manager status.
-    if (!hasClass(els.body, 'tm-mode'))
+    if (els.body.dataset.mode !== 'tm_task_manager')
       removeClass(els.rb_rocketbar, 'js-expanded');
   }
 
   var rbBlurWrites = write(state, rbBlurs, updateBlurRocketbar);
 
   var toTmWrites = write(state, rbSwipes, function (els, event) {
-    addClass(els.body, 'tm-mode');
+    els.body.dataset.mode = 'tm_task_manager';
     addClass(els.rb_rocketbar, 'js-expanded');
     addClass(els.sh_head, 'sh-scaled');
   });
 
   var fromTmToSheetWrites = write(state, headSheetTouchstarts, function (els, event) {
-    removeClass(els.body, 'tm-mode');
+    els.body.dataset.mode = 'sh_sheet';
     removeClass(els.sh_head, 'sh-scaled');
     removeClass(els.rb_rocketbar, 'js-expanded');
   });
@@ -717,6 +717,8 @@ function app(window) {
   var toHomeWrites = write(state, firstBottomEdgeSingleTouchmoves, function (els, event) {
     haltEvent_(event);
 
+    els.body.dataset.mode = 'hs_homescreen';
+
     // Remove bottom gesture catcher from play.
     addClass(els.sys_bottom_edge, 'js-hide');
 
@@ -730,6 +732,8 @@ function app(window) {
 
   var fromHomeToSheetWrites = write(state, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
+
+    els.body.dataset.mode = 'sh_sheet';
 
     // Remove bottom gesture catcher from play.
     removeClass(els.sys_bottom_edge, 'js-hide');
