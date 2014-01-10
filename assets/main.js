@@ -86,6 +86,19 @@ define('dom', function (require, exports) {
   });
   exports.setAttr = setAttr;
 
+  // Set/remove a single attribute on a single element.
+  function setSingleStyle(element, key, value) {
+    // Otherwise, set the attribute.
+    element.style[key] = value;
+    return element;
+  }
+
+  var setStyle = multisetter(function setStyleOn(styles, element) {
+    for (var key in styles) setSingleStyle(element, key, styles[key]);
+    return styles;
+  });
+  exports.setStyle = setStyle;
+
   var addClass = multisetter(function addClassTo(elementClass, element) {
     var prevElementClass = element.className;
     if (prevElementClass.indexOf(elementClass) === -1)
