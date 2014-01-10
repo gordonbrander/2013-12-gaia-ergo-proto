@@ -321,11 +321,15 @@ function accumulators(_, exports) {
     return accumulatable(function accumulateReductions(next, initial) {
       // Define a `next` function for accumulation.
       function nextReduction(accumulated, item) {
-        return item === end ?
-          next(accumulated, end) :
-          // If item is not `end`, update state of reduction and accumulate
-          // with it.
-          next(accumulated, reduction = xf(reduction, item));
+        // If item is end, accumulate with `end`. `xf` should never see end.
+        if (item === end) return next(accumulated, end);
+
+        // Create reduction.
+        reduction = xf(reduction, item);
+
+        // If reduction is `end`, return it so source can end. Otherwise
+        // accumulate with reduction.
+        return (reduction === end) ? end : next(accumulated, reduction);
       }
 
       accumulate(spread, nextReduction, initial);
