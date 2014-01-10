@@ -34,6 +34,11 @@ define('dom', function (require, exports) {
   }
   exports.$ = $;
 
+  function $$(selector) {
+    return document.getElementById(selector);
+  }
+  exports.$$ = $$;
+
   // Internal higher-order function that expidites creating "setters" that
   // can operate on multiple items at once. Pass a `setOn` function that looks
   // like:
@@ -424,6 +429,7 @@ var asserts = helpers.asserts;
 
 var dom = require('dom');
 var $ = dom.$;
+var $$ = dom.$$;
 var hasClass = dom.hasClass;
 var addClass = dom.addClass;
 var removeClass = dom.removeClass;
@@ -642,126 +648,95 @@ function app(window) {
   // manager.
   var headSheetTouchstarts = filter(touchstarts, withTargetClass('sh-cover'));
 
-  var keyboardEl = document.getElementById('sys-fake-keyboard');
-  var rbOverlayEl = document.getElementById('rb-overlay');
-  var rbRocketbarEl = document.getElementById('rb-rocketbar');
-  var rbCancelEl = document.getElementById('rb-cancel');
-  var tmEl = document.getElementById('tm-task-manager');
-  var activeSheetEl = document.getElementById('sh-sheet-000000');
-  var setPanelEl = document.getElementById('set-settings');
-  var setOverlayEl = document.getElementById('set-overlay');
-  var bodyEl = document.getElementById('sys-screen');
-  var hsEl = document.getElementById('hs-homescreen');
-  var bottomEdgeEl = document.getElementById('sys-gesture-panel-bottom');
+  // Contains references to elements we'll be writing to. Also a repository
+  // for shared state.
+  var state = {
+    sys_keyboard: $$('sys-fake-keyboard'),
+    rb_overlay: $$('rb-overlay'),
+    rb_rocketbar: $$('rb-rocketbar'),
+    rb_cancel: $$('rb-cancel'),
+    tm_task_manager: $$('tm-task-manager'),
+    sh_head: $$('sh-sheet-000000'),
+    set_panel: $$('set-settings'),
+    set_overlay: $$('set-overlay'),
+    body: $$('sys-screen'),
+    hs_homescreen: $$('hs-homescreen'),
+    sys_bottom_edge: $$('sys-gesture-panel-bottom')
+  };
 
-  var rbFocusWrites = write({
-    keyboard: keyboardEl,
-    overlay: rbOverlayEl,
-    cancel: rbCancelEl,
-    rocketbar: rbRocketbarEl
-  }, rbTaps, function (els, event) {
-    addClass(els.rocketbar, 'js-expanded');
-    addClass(els.keyboard, 'js-activated');
-    removeClass(els.cancel, 'js-hide');
-    removeClass(els.overlay, 'js-hide');
+  var rbFocusWrites = write(state, rbTaps, function (els, event) {
+    addClass(els.rb_rocketbar, 'js-expanded');
+    addClass(els.sys_keyboard, 'js-activated');
+    removeClass(els.rb_cancel, 'js-hide');
+    removeClass(els.rb_overlay, 'js-hide');
   });
 
   function updateBlurRocketbar(els, event) {
     event = haltEvent_(event);
-    removeClass(els.keyboard, 'js-activated');
-    addClass(els.cancel, 'js-hide');
-    addClass(els.overlay, 'js-hide');
+    removeClass(els.sys_keyboard, 'js-activated');
+    addClass(els.rb_cancel, 'js-hide');
+    addClass(els.rb_overlay, 'js-hide');
 
     // Collapse (or not) per current task manager status.
     if (!hasClass(els.body, 'tm-mode'))
-      removeClass(els.rocketbar, 'js-expanded');
+      removeClass(els.rb_rocketbar, 'js-expanded');
   }
 
-  var rbBlurWrites = write({
-    keyboard: keyboardEl,
-    overlay: rbOverlayEl,
-    cancel: rbCancelEl,
-    rocketbar: rbRocketbarEl,
-    body: bodyEl
-  }, rbBlurs, updateBlurRocketbar);
+  var rbBlurWrites = write(state, rbBlurs, updateBlurRocketbar);
 
-  var toTmWrites = write({
-    body: bodyEl,
-    head: activeSheetEl,
-    rocketbar: rbRocketbarEl
-  }, rbSwipes, function (els, event) {
+  var toTmWrites = write(state, rbSwipes, function (els, event) {
     addClass(els.body, 'tm-mode');
-    addClass(els.rocketbar, 'js-expanded');
-    addClass(els.head, 'sh-scaled');
+    addClass(els.rb_rocketbar, 'js-expanded');
+    addClass(els.sh_head, 'sh-scaled');
   });
 
-  var fromTmToSheetWrites = write({
-    body: bodyEl,
-    head: activeSheetEl,
-    rocketbar: rbRocketbarEl
-  }, headSheetTouchstarts, function (els, event) {
+  var fromTmToSheetWrites = write(state, headSheetTouchstarts, function (els, event) {
     removeClass(els.body, 'tm-mode');
-    removeClass(els.head, 'sh-scaled');
-    removeClass(els.rocketbar, 'js-expanded');
+    removeClass(els.sh_head, 'sh-scaled');
+    removeClass(els.rb_rocketbar, 'js-expanded');
   });
 
   function updateSetPanelClose(els, event) {
-    addClass(els.panel, 'js-hide');
-    addClass(els.overlay, 'js-hide');
+    addClass(els.set_panel, 'js-hide');
+    addClass(els.set_overlay, 'js-hide');
   }
 
   function updateSetPanelOpen(els, event) {
-    removeClass(els.panel, 'js-hide');
-    removeClass(els.overlay, 'js-hide');
+    removeClass(els.set_panel, 'js-hide');
+    removeClass(els.set_overlay, 'js-hide');
   }
 
-  var setPanelWrites = write({
-    panel: setPanelEl,
-    overlay: setOverlayEl
-  }, setEvents, function (els, event) {
+  var setPanelWrites = write(state, setEvents, function (els, event) {
     event = haltEvent_(event);
 
     if (event.target.id === 'set-overlay') updateSetPanelClose(els, event);
-    else if (!hasClass(els.panel, 'js-hide')) updateSetPanelClose(els, event);
+    else if (!hasClass(els.set_panel, 'js-hide')) updateSetPanelClose(els, event);
     else updateSetPanelOpen(els, event);
   });
 
-  var toHomeWrites = write({
-    home: hsEl,
-    manager: tmEl,
-    keyboard: keyboardEl,
-    overlay: rbOverlayEl,
-    cancel: rbCancelEl,
-    rocketbar: rbRocketbarEl,
-    body: bodyEl,
-    bottomEdge: bottomEdgeEl
-  }, firstBottomEdgeSingleTouchmoves, function (els, event) {
+  var toHomeWrites = write(state, firstBottomEdgeSingleTouchmoves, function (els, event) {
     haltEvent_(event);
 
     // Remove bottom gesture catcher from play.
-    addClass(els.bottomEdge, 'js-hide');
+    addClass(els.sys_bottom_edge, 'js-hide');
 
     go(concat([
-      scaleOut(els.manager, 800, 'linear'),
-      fadeIn(els.home, 600, 'ease-out')
+      scaleOut(els.tm_task_manager, 800, 'linear'),
+      fadeIn(els.hs_homescreen, 600, 'ease-out')
     ]));
 
     updateBlurRocketbar(els, event);
   });
 
-  var fromHomeToSheetWrites = write({
-    home: hsEl,
-    manager: tmEl,
-    bottomEdge: bottomEdgeEl
-  }, hsKitTouchstarts, function (els, event) {
+  var fromHomeToSheetWrites = write(state, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
 
     // Remove bottom gesture catcher from play.
-    removeClass(els.bottomEdge, 'js-hide');
+    removeClass(els.sys_bottom_edge, 'js-hide');
 
     go(concat([
-      fadeOut(els.home, 600, 'linear'),
-      scaleIn(els.manager, 800, 'ease-out')
+      fadeOut(els.hs_homescreen, 600, 'linear'),
+      scaleIn(els.tm_task_manager, 800, 'ease-out')
     ]));
   });
 
