@@ -678,7 +678,6 @@ function app(window) {
   var touchcancels = on(window, 'touchcancel');
   var touchEvents = merge([touchstarts, touchmoves, touchcancels, touchends]);
   var augTouchEvents = augmentTouchEvents(touchEvents);
-  var augTouchstops = filter(augTouchEvents, isEventStop);
 
   var bottomEdgeTouchEvents = filter(augTouchEvents, withTargetId('sys-gesture-panel-bottom'));
   var bottomEdgeSingleTouchEvents = filter(bottomEdgeTouchEvents, withFingers(1));
@@ -693,11 +692,20 @@ function app(window) {
     return Math.min(Math.max(dist / screen.height, 0.02), 0.05);
   });
 
-  var rbTouchstops = filter(augTouchstops, withTargetId('rb-rocketbar'));
-
+  var rbTouchEvents = filter(augTouchEvents, withTargetId('rb-rocketbar'));
+  var rbTouchstops = filter(rbTouchEvents, isEventStop);
   // Taps on RocketBar are any swipe that covers very little ground.
   var rbTaps = filter(rbTouchstops, isTap);
-  var rbSwipes = reject(rbTouchstops, isTap);
+
+  var rbMovements = movement(rbTouchEvents, 0.8, function (event) {
+    var n = event.changedTouches[0].screenY;
+    return n * 2 / screen.height;
+  }, function (event) {
+    var touch = event.changedTouches[0];
+    var dist = Math.abs(touch.screenY - touch.prevScreenY);
+    // Our fractional velocity.
+    return Math.min(Math.max(dist / screen.height, 0.1), 0.1);
+  });
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
 
@@ -751,10 +759,19 @@ function app(window) {
 
   var rbBlurWrites = write(state, rbBlurs, updateBlurRocketbar);
 
-  var toTmWrites = write(state, rbSwipes, function (els, event) {
-    els.body.dataset.mode = 'tm_task_manager';
-    addClass(els.rb_rocketbar, 'js-expanded');
-    addClass(els.sh_head, 'sh-scaled');
+  var toTmWrites = write(state, rbMovements, function (els, update) {
+    //addClass(els.rb_rocketbar, 'js-expanded');
+    //addClass(els.sh_head, 'sh-scaled');
+    if (update.type === 'exit') {
+      els.body.dataset.mode = 'tm_task_manager';
+    }
+    else {
+      var f = update.value;
+      var translate = -40 * f;
+      var height = 30 * f;
+      els.sh_head.style.transform = 'translateZ(' + translate + 'px)';
+      els.rb_rocketbar.style.height = (20 + height) + 'px';
+    }
   });
 
   var fromTmToSheetWrites = write(state, headSheetTouchstarts, function (els, event) {

@@ -155,7 +155,6 @@ video {
   position: absolute;
   right: 0;
   top: 0;
-  transition: height 200ms ease-out;
   z-index: 501;
 }
 
