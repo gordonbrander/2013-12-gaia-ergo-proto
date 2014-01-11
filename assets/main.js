@@ -214,8 +214,34 @@ define('view', function (require, exports) {
       }, initial);
     });
   }
-
   exports.write = write;
+
+  function movement(spread, toggle, track, finish) {
+    return accumulatable(function accumulateMovement(next, initial) {
+      var accumulated = initial;
+
+      accumulate(spread, function (isOpen, event) {
+        // No write will happen until movement is reopened.
+        if (!isOpen) return toggle(isOpen, event);
+
+        // Test to see if movement is still open.
+        isOpen = toggle(isOpen, event);
+
+        // Transform event into update. Note that track and finish can generate
+        // more values in the form of `accumulatables`.
+        var update = isOpen ? track(event) : finish(event);
+
+        accumulate(update, function (accumulated, item) {
+          return item !== end ?
+            next(accumulated, item) :
+            accumulated;
+        }, accumulated);
+
+        return isOpen;
+      }, false);
+    });
+  }
+  exports.movement = movement;
 
   return exports;
 });
@@ -418,9 +444,9 @@ var reductions = a.reductions;
 var accumulatable = a.accumulatable;
 var accumulate = a.accumulate;
 var end = a.end;
-var write = a.write;
 var id = a.id;
 var isNullish = a.isNullish;
+var frames = a.frames;
 
 var helpers = require('helpers');
 var print = helpers.print;
@@ -439,7 +465,9 @@ var withId = dom.withId;
 var withClass = dom.withClass;
 var withTargetClass = dom.withTargetClass;
 
-var write = require('view').write;
+var v = require('view');
+var write = v.write;
+var movement = v.movement;
 
 var anim = require('animation');
 var animation = anim.animation;
@@ -599,31 +627,42 @@ function app(window) {
   var touchEvents = merge([touchstarts, touchmoves, touchcancels, touchends]);
   var augTouchEvents = augmentTouchEvents(touchEvents);
   var augTouchstops = filter(augTouchEvents, isEventStop);
-  var augTouchmoves = filter(augTouchEvents, isEventMove);
 
-  var bottomEdgeTouchmoves = filter(touchmoves, withTargetId('sys-gesture-panel-bottom'));
-  var bottomEdgeSingleTouchmoves = filter(bottomEdgeTouchmoves, withFingers(1));
+  var bottomEdgeTouchEvents = filter(augTouchEvents, withTargetId('sys-gesture-panel-bottom'));
+  var bottomEdgeSingleTouchEvents = filter(bottomEdgeTouchEvents, withFingers(1));
 
-  var firstBottomEdgeSingleTouchmoves = asserts(bottomEdgeSingleTouchmoves, function(prev, curr) {
-    // We're only interested in single touch cases for this spread.
-    if (curr.touches.length > 1) return false;
+  var bottomEdgeMovements = movement(bottomEdgeSingleTouchEvents, function (isOpen, event) {
+    // touchstarts reopen.
+    if (!isOpen) return isEventStart(event);
+    if (isEventStop(event)) return false;
 
-    // Handle first case, where prev is null.
-    if (!prev) return true;
+    var dist = screen.height - event.touches[0].screenY;
+    var threshold = 260;
 
-    var currTouch = curr.changedTouches[0];
-    var prevTouch = getTouchById(prev.touches, currTouch.identifier);
+    // Has distance passed threshold? Finish movement.
+    if (dist > threshold) return false;
 
-    // If this is the first time touch appeared, return true.
-    if (!prevTouch) return true;
+    return true;
+  }, function (event) {
+    return (screen.height - event.changedTouches[0].screenY) / screen.height;
+  }, function (event) {
+    // Extrapolate the remaining distance into animation frames containing
+    // coords.
+    var touch = event.changedTouches[0];
+    var dist = Math.abs(touch.screenY - touch.prevScreenY);
+    var i = Math.max(dist / screen.height, 0.02);
 
-    return (
-      // If identifiers don't match, these are definitely different.
-      // However, Firefox (and maybe other browsers) recycle identifiers,
-      prevTouch.identifier !== currTouch.identifier ||
-      // so in addition, we check the original timestamp.
-      prevTouch.origTimeStamp !== currTouch.origTimeStamp
-    );
+    var f = (screen.height - touch.screenY) / screen.height;
+
+    var fps = frames();
+
+    return reductions(fps, function (f) {
+      if (f === 1) return end;
+
+      var f2 =  f + i;
+
+      return (f2 > 1) ? 1 : f2;
+    }, f);
   });
 
   var rbTouchstops = filter(augTouchstops, withTargetId('rb-rocketbar'));
@@ -714,7 +753,7 @@ function app(window) {
     else updateSetPanelOpen(els, event);
   });
 
-  var toHomeWrites = write(state, firstBottomEdgeSingleTouchmoves, function (els, event) {
+  var toHomeWrites = write(state, null, function (els, event) {
     haltEvent_(event);
 
     els.body.dataset.mode = 'hs_homescreen';
@@ -728,6 +767,20 @@ function app(window) {
     ]));
 
     updateBlurRocketbar(els, event);
+  });
+
+  var toHomeMovementWrites = write(state, bottomEdgeMovements, function (els, f) {
+    removeClass(els.hs_homescreen, 'js-hide');
+
+    var translate = -1500 * (f * f);
+    var opacity = 1 - f;
+    els.tm_task_manager.style.transform = 'translateZ(' + translate + 'px)';
+    els.tm_task_manager.style.opacity = opacity;
+
+    if (f === 1) {
+      els.body.dataset.mode = 'hs_homescreen';
+      addClass(els.sys_bottom_edge, 'js-hide');
+    }
   });
 
   var fromHomeToSheetWrites = write(state, hsKitTouchstarts, function (els, event) {
@@ -752,9 +805,10 @@ function app(window) {
     setPanelWrites,
     toTmWrites,
     fromTmToSheetWrites,
-    toHomeWrites,
+    //toHomeWrites,
+    toHomeMovementWrites,
     fromHomeToSheetWrites
   ]);
 }
 
-print(app(window));
+go(app(window));

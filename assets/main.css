@@ -66,6 +66,10 @@ body {
   height: 100%;
 }
 
+body {
+  perspective: 100px;
+}
+
 /* Remove the gap between images, videos, audio and canvas and the bottom of
 their containers: h5bp.com/i/440 */
 audio,
@@ -240,8 +244,6 @@ video {
 .tm-task-manager {
   background: #484848;
   height: 460px;
-  /* Perspective for shrinking sheets. */
-  perspective: 100px;
   position: absolute;
   top: 20px;
   width: 320px;
@@ -255,7 +257,6 @@ video {
   height: 460px;
   position: absolute;
   top: 0;
-  transition: 200ms transform linear;
   width: 320px;
   z-index: 300;
 }
