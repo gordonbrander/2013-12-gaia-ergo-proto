@@ -629,16 +629,16 @@ function accumulators(_, exports) {
   // Get a stream of animation frames over time.
   // Returns an accumulatable for a stream of animation frames over time.
   // Each frame is represented by a framecount.
-  function frames(ms) {
+  function frames(n) {
     return hub(accumulatable(function accumulateFrames(next, initial) {
       var accumulated = initial;
-      var start = Date.now();
+      var i = n || Infinity;
 
       function onFrame(now) {
         accumulated = next(accumulated, now);
-
-        // If we have reached the ms count for frames, end the spread.
-        if (ms && ((now - start) >= ms)) return next(accumulated, end);
+        i = i - 1;
+        // If we have reached the count for frames, end the spread.
+        if (i === 0) return next(accumulated, end);
         // If consumer ends spread, stop requesting frames.
         if (accumulated !== end) return requestAnimationFrame(onFrame);
       }

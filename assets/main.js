@@ -216,30 +216,78 @@ define('view', function (require, exports) {
   }
   exports.write = write;
 
-  function movement(spread, toggle, track, finish) {
+  // Transform a spread using on/off state.
+  function modal(spread, open, close, update, enter, exit) {
     return accumulatable(function accumulateMovement(next, initial) {
       var accumulated = initial;
 
-      accumulate(spread, function (isOpen, event) {
-        // No write will happen until movement is reopened.
-        if (!isOpen) return toggle(isOpen, event);
+      accumulate(spread, function (isOpen, item) {
+        if (!isOpen) {
+          isOpen = open(item);
+          if (!isOpen) return false;
+          item = enter(item);
+        }
+        else {
+          isOpen = !close(item);
+          item = isOpen ? update(item) : exit(item);
+        }
 
-        // Test to see if movement is still open.
-        isOpen = toggle(isOpen, event);
-
-        // Transform event into update. Note that track and finish can generate
-        // more values in the form of `accumulatables`.
-        var update = isOpen ? track(event) : finish(event);
-
-        accumulate(update, function (accumulated, item) {
-          return item !== end ?
-            next(accumulated, item) :
-            accumulated;
-        }, accumulated);
+        accumulate(item, function (_, item) {
+          if (item !== end) accumulated = next(accumulated, item);
+        });
 
         return isOpen;
       }, false);
     });
+  }
+  exports.modal = modal;
+
+  function unbox(thing, key) {
+    return thing && thing[key] ? thing[key] : thing;
+  }
+  exports.unbox = unbox;
+
+  function movement(touches, threshold, calc, vel) {
+    function isClosed(event) {
+      if (isEventStop(event)) return true;
+      // has distance passed threshold? finish movement.
+      return calc(event) > threshold;
+    }
+
+    function update(event) {
+      return { value: calc(event), type: 'update' };
+    }
+
+    function enter(event) {
+      return { value: calc(event), type: 'enter' };
+    }
+
+    function exit(event) {
+      // Extrapolate the remaining distance into animation frames containing
+      // coords.
+      // The the fraction of the screen we've traversed from bottom.
+      var f = calc(event);
+      var v = vel(event);
+      // Find the number of `v` we'll need to add to `f` in order to go from
+      // `f` to 1.
+      var n = Math.ceil((1 - f) / v);
+
+      return reductions(frames(n), function (b) {
+        var f = unbox(b, 'value');
+        var f2 = f + v;
+        return (f2 > 1) ?
+          { value: 1, type: 'exit' } : { value: f2, type: 'update' };
+      }, f);
+    }
+
+    return modal(
+      touches,
+      isEventStart,
+      isClosed,
+      update,
+      enter,
+      exit
+    );
   }
   exports.movement = movement;
 
@@ -618,6 +666,10 @@ function haltEvent_(event) {
   return event;
 }
 
+function fractionOfScreenFromBottom(n) {
+  return (screen.height - n) / screen.height;
+}
+
 function app(window) {
   // Listen for touch events.
   var touchstarts = on(window, 'touchstart');
@@ -631,38 +683,14 @@ function app(window) {
   var bottomEdgeTouchEvents = filter(augTouchEvents, withTargetId('sys-gesture-panel-bottom'));
   var bottomEdgeSingleTouchEvents = filter(bottomEdgeTouchEvents, withFingers(1));
 
-  var bottomEdgeMovements = movement(bottomEdgeSingleTouchEvents, function (isOpen, event) {
-    // touchstarts reopen.
-    if (!isOpen) return isEventStart(event);
-    if (isEventStop(event)) return false;
-
-    var dist = screen.height - event.touches[0].screenY;
-    var threshold = 260;
-
-    // Has distance passed threshold? Finish movement.
-    if (dist > threshold) return false;
-
-    return true;
+  var bottomEdgeMovements = movement(bottomEdgeSingleTouchEvents, 0.8, function (event) {
+    var n = event.changedTouches[0].screenY;
+    return (screen.height - n) / screen.height;
   }, function (event) {
-    return (screen.height - event.changedTouches[0].screenY) / screen.height;
-  }, function (event) {
-    // Extrapolate the remaining distance into animation frames containing
-    // coords.
     var touch = event.changedTouches[0];
     var dist = Math.abs(touch.screenY - touch.prevScreenY);
-    var i = Math.max(dist / screen.height, 0.02);
-
-    var f = (screen.height - touch.screenY) / screen.height;
-
-    var fps = frames();
-
-    return reductions(fps, function (f) {
-      if (f === 1) return end;
-
-      var f2 =  f + i;
-
-      return (f2 > 1) ? 1 : f2;
-    }, f);
+    // Our fractional velocity.
+    return Math.min(Math.max(dist / screen.height, 0.02), 0.05);
   });
 
   var rbTouchstops = filter(augTouchstops, withTargetId('rb-rocketbar'));
@@ -736,60 +764,50 @@ function app(window) {
   });
 
   function updateSetPanelClose(els, event) {
-    addClass(els.set_panel, 'js-hide');
-    addClass(els.set_overlay, 'js-hide');
+    els.set_panel.style.display = 'none';
+    els.set_overlay.style.display = 'none';
   }
 
   function updateSetPanelOpen(els, event) {
-    removeClass(els.set_panel, 'js-hide');
-    removeClass(els.set_overlay, 'js-hide');
+    els.set_panel.style.display = 'block';
+    els.set_overlay.style.display = 'block';
   }
 
   var setPanelWrites = write(state, setEvents, function (els, event) {
     event = haltEvent_(event);
 
     if (event.target.id === 'set-overlay') updateSetPanelClose(els, event);
-    else if (!hasClass(els.set_panel, 'js-hide')) updateSetPanelClose(els, event);
+    else if (els.set_panel.style.display === 'block') updateSetPanelClose(els, event);
     else updateSetPanelOpen(els, event);
   });
 
-  var toHomeWrites = write(state, null, function (els, event) {
-    haltEvent_(event);
-
-    els.body.dataset.mode = 'hs_homescreen';
-
-    // Remove bottom gesture catcher from play.
-    addClass(els.sys_bottom_edge, 'js-hide');
-
-    go(concat([
-      scaleOut(els.tm_task_manager, 800, 'linear'),
-      fadeIn(els.hs_homescreen, 600, 'ease-out')
-    ]));
-
-    updateBlurRocketbar(els, event);
-  });
-
-  var toHomeMovementWrites = write(state, bottomEdgeMovements, function (els, f) {
-    removeClass(els.hs_homescreen, 'js-hide');
-
-    var translate = -1500 * (f * f);
-    var opacity = 1 - f;
-    els.tm_task_manager.style.transform = 'translateZ(' + translate + 'px)';
-    els.tm_task_manager.style.opacity = opacity;
-
-    if (f === 1) {
+  var toHomeMovementWrites = write(state, bottomEdgeMovements, function (els, update) {
+    if (update.type === 'enter') {
+      els.hs_homescreen.style.display = 'block';
+    }
+    else if (update.type === 'exit') {
       els.body.dataset.mode = 'hs_homescreen';
-      addClass(els.sys_bottom_edge, 'js-hide');
+      els.tm_task_manager.style.transform = 'none';
+      els.tm_task_manager.style.opacity = 1;
+      els.tm_task_manager.style.display = 'none';
+      els.sys_bottom_edge.display = 'none';
+    }
+    else {
+      var f = update.value;
+      var translate = -1500 * (f * f);
+      var opacity = 1 - f;
+      els.tm_task_manager.style.transform = 'translateZ(' + translate + 'px)';
+      els.tm_task_manager.style.opacity = opacity;
     }
   });
+
 
   var fromHomeToSheetWrites = write(state, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
 
     els.body.dataset.mode = 'sh_sheet';
 
-    // Remove bottom gesture catcher from play.
-    removeClass(els.sys_bottom_edge, 'js-hide');
+    els.sys_bottom_edge.display = 'block';
 
     go(concat([
       fadeOut(els.hs_homescreen, 600, 'linear'),

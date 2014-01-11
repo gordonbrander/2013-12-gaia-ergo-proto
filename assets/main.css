@@ -244,6 +244,10 @@ video {
 .tm-task-manager {
   background: #484848;
   height: 460px;
+  /* We have to give task manager perspective because as an absolute element
+  with z-index, it has a new stacking context 
+  See: https://developer.mozilla.org/en-US/docs/Web/Guide/CSS/Understanding_z_index/The_stacking_context */
+  perspective: 100px;
   position: absolute;
   top: 20px;
   width: 320px;
