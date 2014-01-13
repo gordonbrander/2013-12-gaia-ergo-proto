@@ -210,7 +210,7 @@ define('view', function (require, exports) {
   exports.write = write;
 
   // Write to a target as a side-effect of accumulating `spread`.
-  function writes(target, spread, swap) {
+  function writes(target, spread, update, enter, exit) {
     update = update || id;
     enter = enter || id;
     exit = exit || id;
@@ -850,11 +850,11 @@ function app(window) {
 
     els.sys_bottom_edge.display = 'block';
 
-    go(concat([
+    print(concat([
       fadeOut(els.hs_homescreen, 600, 'linear'),
       scaleIn(els.tm_task_manager, 800, 'ease-out')
     ]));
   });
 }
 
-go(app(window));
+app(window);
