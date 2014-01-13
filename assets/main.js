@@ -529,6 +529,20 @@ var fadeIn = anim.fadeIn;
 var scaleIn = anim.scaleIn;
 var fadeOut = anim.fadeOut;
 
+function withValue(v) {
+  function isValue(thing) {
+    return thing === v;
+  }
+  return isValue;
+}
+
+function withRange(a, b) {
+  function between(thing) {
+    return thing > a && thing < b;
+  }
+  return between;
+}
+
 // Check if an event is an ending event (cancel or end).
 function isEventStop(event) {
   return event && (event.type === 'touchend' || event.type === 'touchcancel');
@@ -675,6 +689,10 @@ function fractionOfScreenFromBottom(n) {
   return (screen.height - n) / screen.height;
 }
 
+var is0 = withValue(0);
+var is1 = withValue(1);
+var isBetween0And1 = withRange(0, 1);
+
 function app(window) {
   // Listen for touch events.
   var touchstarts = on(window, 'touchstart');
@@ -696,6 +714,10 @@ function app(window) {
     // Our fractional velocity.
     return Math.min(Math.max(dist / screen.height, 0.02), 0.05);
   });
+
+  var toHomeMoveEnters = filter(bottomEdgeMovements, is0);
+  var toHomeMoveUpdates = filter(bottomEdgeMovements, isBetween0And1);
+  var toHomeMoveExits = filter(bottomEdgeMovements, is1);
 
   var rbTouchEvents = filter(augTouchEvents, withTargetId('rb-rocketbar'));
   var rbTouchstops = filter(rbTouchEvents, isEventStop);
@@ -802,25 +824,24 @@ function app(window) {
     else updateSetPanelOpen(els, event);
   });
 
-  write(state, bottomEdgeMovements, function (els, f) {
-    if (f === 0) {
-      els.hs_homescreen.style.display = 'block';
-    }
-    else if (f === 1) {
-      els.body.dataset.mode = 'hs_homescreen';
-      els.tm_task_manager.style.transform = 'none';
-      els.tm_task_manager.style.opacity = 1;
-      els.tm_task_manager.style.display = 'none';
-      els.sys_bottom_edge.display = 'none';
-    }
-    else {
-      var translate = -1500 * (f * f);
-      var opacity = 1 - f;
-      els.tm_task_manager.style.transform = 'translateZ(' + translate + 'px)';
-      els.tm_task_manager.style.opacity = opacity;
-    }
+  write(state, toHomeMoveEnters, function (els, f) {
+    els.hs_homescreen.style.display = 'block';
   });
 
+  write(state, toHomeMoveExits, function (els, f) {
+    els.body.dataset.mode = 'hs_homescreen';
+    els.tm_task_manager.style.transform = 'none';
+    els.tm_task_manager.style.opacity = 1;
+    els.tm_task_manager.style.display = 'none';
+    els.sys_bottom_edge.display = 'none';
+  });
+
+  write(state, toHomeMoveUpdates, function (els, f) {
+    var translate = -1500 * (f * f);
+    var opacity = 1 - f;
+    els.tm_task_manager.style.transform = 'translateZ(' + translate + 'px)';
+    els.tm_task_manager.style.opacity = opacity;
+  });
 
   write(state, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
