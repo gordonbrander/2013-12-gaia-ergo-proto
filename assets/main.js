@@ -227,6 +227,15 @@ define('view', function (require, exports) {
   }
   exports.writes = writes;
 
+  function model(spread, derive, state) {
+    return hub(accumulatable(function accumulateModel(next, initial) {
+      accumulate(spread, function (accumulated, item) {
+        return next(accumulated, derive(state, item));
+      }, initial);
+    }));
+  }
+  exports.model = model;
+
   // Transform a spread using on/off state.
   function modal(spread, open, close, update, enter, exit) {
     return accumulatable(function accumulateMovement(next, initial) {
@@ -521,6 +530,7 @@ var withTargetClass = dom.withTargetClass;
 var v = require('view');
 var write = v.write;
 var movement = v.movement;
+var model = v.model;
 
 var anim = require('animation');
 var animation = anim.animation;
@@ -685,6 +695,10 @@ function haltEvent_(event) {
   return event;
 }
 
+function isTruthy(thing) {
+  return !!thing;
+}
+
 function fractionOfScreenFromBottom(n) {
   return (screen.height - n) / screen.height;
 }
@@ -717,6 +731,7 @@ function app(window) {
   var touchcancels = on(window, 'touchcancel');
   var touchEvents = merge([touchstarts, touchmoves, touchcancels, touchends]);
   var augTouchEvents = augmentTouchEvents(touchEvents);
+  var augTouchstops = filter(augmentTouchEvents, isEventStop);
 
   var bottomEdgeTouchEvents = filter(augTouchEvents, withTargetId('sys-gesture-panel-bottom'));
   var bottomEdgeSingleTouchEvents = filter(bottomEdgeTouchEvents, withFingers(1));
@@ -756,9 +771,17 @@ function app(window) {
 
   var rbBlurs = merge([rbCancelTouchstarts, rbOverlayTouchstarts]);
 
-  var setIconTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
+  var setIconTouchstops = filter(touchstarts, withTargetId('rb-icons'));
   var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
-  var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
+  var setEvents = merge([setIconTouchstops, setOverlayTouchstarts]);
+  // Derive settings panel state.
+  var setToggles = model(setEvents, function (setPanelEl, event) {
+    console.log(setPanelEl, event);
+    haltEvent_(event);
+    return setPanelEl.style.display === 'none';
+  }, state.set_panel);
+  var setClose = reject(setToggles, isTruthy);
+  var setOpen = filter(setToggles, isTruthy);
 
   var hsKitTouchstarts = filter(touchstarts, withTargetId('hs-kitsilano-hotzone'));
 
@@ -806,22 +829,14 @@ function app(window) {
     removeClass(els.rb_rocketbar, 'js-expanded');
   });
 
-  function updateSetPanelClose(els, event) {
+  write(state, setClose, function updateSetPanelClose(els, event) {
     els.set_panel.style.display = 'none';
     els.set_overlay.style.display = 'none';
-  }
+  });
 
-  function updateSetPanelOpen(els, event) {
+  write(state, setOpen, function updateSetPanelOpen(els, event) {
     els.set_panel.style.display = 'block';
     els.set_overlay.style.display = 'block';
-  }
-
-  write(state, setEvents, function (els, event) {
-    event = haltEvent_(event);
-
-    if (event.target.id === 'set-overlay') updateSetPanelClose(els, event);
-    else if (els.set_panel.style.display === 'block') updateSetPanelClose(els, event);
-    else updateSetPanelOpen(els, event);
   });
 
   write(state, toHomeMoveEnters, function (els, f) {
