@@ -268,8 +268,9 @@ define('view', function (require, exports) {
 
   function movement(touches, threshold, calc, vel) {
     function isClosed(event) {
+      // If event is stop, event is closed.
       if (isEventStop(event)) return true;
-      // has distance passed threshold? finish movement.
+      // Has distance passed threshold? finish movement.
       return calc(event) > threshold;
     }
 
@@ -291,7 +292,7 @@ define('view', function (require, exports) {
 
     return modal(
       touches,
-      isEventStart,
+      isEventMove,
       isClosed,
       calc,
       enterMovement,
@@ -735,8 +736,9 @@ function app(window) {
 
   var bottomEdgeTouchEvents = filter(augTouchEvents, withTargetId('sys-gesture-panel-bottom'));
   var bottomEdgeSingleTouchEvents = filter(bottomEdgeTouchEvents, withFingers(1));
+  var bottomEdgeSingleDrags = reject(bottomEdgeSingleTouchEvents, isEventStart);
 
-  var bottomEdgeMovements = movement(bottomEdgeSingleTouchEvents, 0.8, function (event) {
+  var bottomEdgeMovements = movement(bottomEdgeSingleDrags, 0.8, function (event) {
     var n = event.changedTouches[0].screenY;
     return (screen.height - n) / screen.height;
   }, function (event) {
@@ -751,11 +753,12 @@ function app(window) {
   var toHomeMoveExits = filter(bottomEdgeMovements, is1);
 
   var rbTouchEvents = filter(augTouchEvents, withTargetId('rb-rocketbar'));
+  var rbDrags = reject(rbTouchEvents, isEventStart);
   var rbTouchstops = filter(rbTouchEvents, isEventStop);
   // Taps on RocketBar are any swipe that covers very little ground.
   var rbTaps = filter(rbTouchstops, isTap);
 
-  var rbMovements = movement(rbTouchEvents, 0.8, function (event) {
+  var rbMovements = movement(rbDrags, 0.8, function (event) {
     var n = event.changedTouches[0].screenY;
     return n * 2 / screen.height;
   }, function (event) {
