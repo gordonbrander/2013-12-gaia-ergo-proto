@@ -253,24 +253,15 @@ define('view', function (require, exports) {
   }
   exports.modal = modal;
 
-  function unbox(thing, key) {
-    return thing && thing[key] ? thing[key] : thing;
+  function enterMovement() {
+    return 0;
   }
-  exports.unbox = unbox;
 
   function movement(touches, threshold, calc, vel) {
     function isClosed(event) {
       if (isEventStop(event)) return true;
       // has distance passed threshold? finish movement.
       return calc(event) > threshold;
-    }
-
-    function update(event) {
-      return { value: calc(event), type: 'update' };
-    }
-
-    function enter(event) {
-      return { value: calc(event), type: 'enter' };
     }
 
     function exit(event) {
@@ -283,11 +274,9 @@ define('view', function (require, exports) {
       // `f` to 1.
       var n = Math.ceil((1 - f) / v);
 
-      return reductions(frames(n), function (b) {
-        var f = unbox(b, 'value');
-        var f2 = f + v;
-        return (f2 > 1) ?
-          { value: 1, type: 'exit' } : { value: f2, type: 'update' };
+      return reductions(frames(n), function (f) {
+        var t = f + v;
+        return (t > 1) ? 1 : t;
       }, f);
     }
 
@@ -295,8 +284,8 @@ define('view', function (require, exports) {
       touches,
       isEventStart,
       isClosed,
-      update,
-      enter,
+      calc,
+      enterMovement,
       exit
     );
   }
@@ -775,14 +764,13 @@ function app(window) {
 
   write(state, rbBlurs, updateBlurRocketbar);
 
-  write(state, rbMovements, function (els, update) {
+  write(state, rbMovements, function (els, f) {
     //addClass(els.rb_rocketbar, 'js-expanded');
     //addClass(els.sh_head, 'sh-scaled');
-    if (update.type === 'exit') {
+    if (f === 1) {
       els.body.dataset.mode = 'tm_task_manager';
     }
     else {
-      var f = update.value;
       var translate = -40 * f;
       var height = 30 * f;
       els.sh_head.style.transform = 'translateZ(' + translate + 'px)';
@@ -814,11 +802,11 @@ function app(window) {
     else updateSetPanelOpen(els, event);
   });
 
-  write(state, bottomEdgeMovements, function (els, update) {
-    if (update.type === 'enter') {
+  write(state, bottomEdgeMovements, function (els, f) {
+    if (f === 0) {
       els.hs_homescreen.style.display = 'block';
     }
-    else if (update.type === 'exit') {
+    else if (f === 1) {
       els.body.dataset.mode = 'hs_homescreen';
       els.tm_task_manager.style.transform = 'none';
       els.tm_task_manager.style.opacity = 1;
@@ -826,7 +814,6 @@ function app(window) {
       els.sys_bottom_edge.display = 'none';
     }
     else {
-      var f = update.value;
       var translate = -1500 * (f * f);
       var opacity = 1 - f;
       els.tm_task_manager.style.transform = 'translateZ(' + translate + 'px)';
