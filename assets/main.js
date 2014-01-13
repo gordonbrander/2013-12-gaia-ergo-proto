@@ -178,7 +178,7 @@ define('view', function (require, exports) {
   var end = a.end;
   var accumulate = a.accumulate;
 
-  // Write to a target as a side-effect of accumulating `spread`.
+  // Write to `target` every time `spread` updates.
   //
   // `enter(target)` must return a value representing the target to be written
   // to. This gives you a chance to create the target from a value, or modify
@@ -201,10 +201,21 @@ define('view', function (require, exports) {
     enter = enter || id;
     exit = exit || id;
 
-    return accumulatable(function accumulatewrite(next, initial) {
-      // Prep target.
-      target = enter(target);
+    target = enter(target);
+    accumulate(spread, function nextWrite(_, item) {
+      if (item === end) exit(target);
+      else update(target, item);
+    });
+  }
+  exports.write = write;
 
+  // Write to a target as a side-effect of accumulating `spread`.
+  function writes(target, spread, swap) {
+    update = update || id;
+    enter = enter || id;
+    exit = exit || id;
+    return accumulatable(function accumulatewrite(next, initial) {
+      target = enter(target);
       accumulate(spread, function nextWrite(accumulated, item) {
         if (item === end) exit(target);
         else update(target, item);
@@ -214,7 +225,7 @@ define('view', function (require, exports) {
       }, initial);
     });
   }
-  exports.write = write;
+  exports.writes = writes;
 
   // Transform a spread using on/off state.
   function modal(spread, open, close, update, enter, exit) {
@@ -302,7 +313,7 @@ define('animation', function (require, exports) {
   var merge = a.merge;
   var end = a.end;
 
-  var write = require('view').write;
+  var writes = require('view').writes;
 
   function setAnimation_(element, name, duration, easing, iterations) {
     // Set up animation styles.
@@ -351,14 +362,14 @@ define('animation', function (require, exports) {
       return setAnimation_(element, name, duration, easing, iterations);
     }
 
-    return write(element, anim, null, enterAnimation_, exitAnimation_);
+    return writes(element, anim, null, enterAnimation_, exitAnimation_);
   }
   exports.animation = animation;
 
   function build(name, enter, exit) {
     function animateBuild(element, duration, easing) {
       var anim = animation(element, name, duration, easing);
-      return write(element, anim, null, enter, exit);
+      return writes(element, anim, null, enter, exit);
     }
     return animateBuild;
   }
@@ -474,6 +485,11 @@ define('helpers', function (require, exports) {
     return asserts(spread, isDifferent);
   }
   exports.dropRepeats = dropRepeats;
+
+  function sync(spread, trigger) {
+    return dropRepeats(sample(spread, trigger));
+  }
+  exports.sync = sync;
 
   return exports;
 });
@@ -739,7 +755,7 @@ function app(window) {
     sys_bottom_edge: $$('sys-gesture-panel-bottom')
   };
 
-  var rbFocusWrites = write(state, rbTaps, function (els, event) {
+  write(state, rbTaps, function (els, event) {
     addClass(els.rb_rocketbar, 'js-expanded');
     addClass(els.sys_keyboard, 'js-activated');
     removeClass(els.rb_cancel, 'js-hide');
@@ -757,9 +773,9 @@ function app(window) {
       removeClass(els.rb_rocketbar, 'js-expanded');
   }
 
-  var rbBlurWrites = write(state, rbBlurs, updateBlurRocketbar);
+  write(state, rbBlurs, updateBlurRocketbar);
 
-  var toTmWrites = write(state, rbMovements, function (els, update) {
+  write(state, rbMovements, function (els, update) {
     //addClass(els.rb_rocketbar, 'js-expanded');
     //addClass(els.sh_head, 'sh-scaled');
     if (update.type === 'exit') {
@@ -774,7 +790,7 @@ function app(window) {
     }
   });
 
-  var fromTmToSheetWrites = write(state, headSheetTouchstarts, function (els, event) {
+  write(state, headSheetTouchstarts, function (els, event) {
     els.body.dataset.mode = 'sh_sheet';
     removeClass(els.sh_head, 'sh-scaled');
     removeClass(els.rb_rocketbar, 'js-expanded');
@@ -790,7 +806,7 @@ function app(window) {
     els.set_overlay.style.display = 'block';
   }
 
-  var setPanelWrites = write(state, setEvents, function (els, event) {
+  write(state, setEvents, function (els, event) {
     event = haltEvent_(event);
 
     if (event.target.id === 'set-overlay') updateSetPanelClose(els, event);
@@ -798,7 +814,7 @@ function app(window) {
     else updateSetPanelOpen(els, event);
   });
 
-  var toHomeMovementWrites = write(state, bottomEdgeMovements, function (els, update) {
+  write(state, bottomEdgeMovements, function (els, update) {
     if (update.type === 'enter') {
       els.hs_homescreen.style.display = 'block';
     }
@@ -819,7 +835,7 @@ function app(window) {
   });
 
 
-  var fromHomeToSheetWrites = write(state, hsKitTouchstarts, function (els, event) {
+  write(state, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
 
     els.body.dataset.mode = 'sh_sheet';
@@ -831,19 +847,6 @@ function app(window) {
       scaleIn(els.tm_task_manager, 800, 'ease-out')
     ]));
   });
-
-  // Merge all accumulatable spreads so they will begin accumulation at same
-  // moment.
-  return merge([
-    rbFocusWrites,
-    rbBlurWrites,
-    setPanelWrites,
-    toTmWrites,
-    fromTmToSheetWrites,
-    //toHomeWrites,
-    toHomeMovementWrites,
-    fromHomeToSheetWrites
-  ]);
 }
 
 go(app(window));
