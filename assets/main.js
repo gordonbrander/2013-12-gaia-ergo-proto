@@ -694,6 +694,22 @@ var is1 = withValue(1);
 var isBetween0And1 = withRange(0, 1);
 
 function app(window) {
+  // Contains references to elements we'll be writing to. Also a repository
+  // for shared state.
+  var state = {
+    sys_keyboard: $$('sys-fake-keyboard'),
+    rb_overlay: $$('rb-overlay'),
+    rb_rocketbar: $$('rb-rocketbar'),
+    rb_cancel: $$('rb-cancel'),
+    tm_task_manager: $$('tm-task-manager'),
+    sh_head: $$('sh-sheet-000000'),
+    set_panel: $$('set-settings'),
+    set_overlay: $$('set-overlay'),
+    body: $$('sys-screen'),
+    hs_homescreen: $$('hs-homescreen'),
+    sys_bottom_edge: $$('sys-gesture-panel-bottom')
+  };
+
   // Listen for touch events.
   var touchstarts = on(window, 'touchstart');
   var touchmoves = on(window, 'touchmove');
@@ -749,22 +765,6 @@ function app(window) {
   // @TODO this obviously only works when we only have one sheet in task
   // manager.
   var headSheetTouchstarts = filter(touchstarts, withTargetClass('sh-cover'));
-
-  // Contains references to elements we'll be writing to. Also a repository
-  // for shared state.
-  var state = {
-    sys_keyboard: $$('sys-fake-keyboard'),
-    rb_overlay: $$('rb-overlay'),
-    rb_rocketbar: $$('rb-rocketbar'),
-    rb_cancel: $$('rb-cancel'),
-    tm_task_manager: $$('tm-task-manager'),
-    sh_head: $$('sh-sheet-000000'),
-    set_panel: $$('set-settings'),
-    set_overlay: $$('set-overlay'),
-    body: $$('sys-screen'),
-    hs_homescreen: $$('hs-homescreen'),
-    sys_bottom_edge: $$('sys-gesture-panel-bottom')
-  };
 
   write(state, rbTaps, function (els, event) {
     addClass(els.rb_rocketbar, 'js-expanded');
