@@ -94,6 +94,11 @@ video {
   display: none;
 }
 
+/* JS class for disabling CSS transitions while animating an element via CSS. */
+.js-transition {
+  transition: none !important;
+}
+
 /* System .sys-
 ----------------------------------------------------------------------------- */
 
@@ -153,6 +158,7 @@ video {
   left: 0;
   /* Contains absolute elements */
   position: absolute;
+  transition: height 200ms linear;
   right: 0;
   top: 0;
   z-index: 501;
@@ -260,6 +266,7 @@ video {
   height: 460px;
   position: absolute;
   top: 0;
+  transition: transform 200ms linear;
   width: 320px;
   z-index: 300;
 }

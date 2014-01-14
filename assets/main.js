@@ -177,6 +177,7 @@ define('view', function (require, exports) {
   var accumulatable = a.accumulatable;
   var end = a.end;
   var accumulate = a.accumulate;
+  var isNullish = a.isNullish;
 
   // Write to `target` every time `spread` updates.
   //
@@ -230,7 +231,9 @@ define('view', function (require, exports) {
   function model(spread, derive, state) {
     return hub(accumulatable(function accumulateModel(next, initial) {
       accumulate(spread, function (accumulated, item) {
-        return next(accumulated, derive(state, item));
+        var derived = derive(state, item);
+        // If derived state is empty, skip accumulation.
+        return !isNullish(derived) ? next(accumulated, derived) : accumulated;
       }, initial);
     }));
   }
@@ -325,10 +328,10 @@ define('animation', function (require, exports) {
 
   function exitAnimation_(element) {
     // Tear down animation styles.
-    element.style.animationName = 'none';
-    element.style.animationDuration = '0ms';
-    element.style.animationIterationCount = 1;
-    element.style.animationEasing = 'linear';
+    element.style.animationName = '';
+    element.style.animationDuration = '';
+    element.style.animationIterationCount = '';
+    element.style.animationEasing = '';
     return element;
   }
 
@@ -754,11 +757,19 @@ function app(window) {
 
   var rbTouchEvents = filter(augTouchEvents, withTargetId('rb-rocketbar'));
   var rbDrags = reject(rbTouchEvents, isEventStart);
+
+  var toRbDrags = model(rbDrags, function (rbEl, event) {
+    // If rocketbar is expanded, skip this drag. Otherwise, halt event, we're
+    // going to handle it as a drag.
+    return (hasClass(rbEl, 'js-expanded')) ?
+      null : haltEvent_(event);
+  }, state.rb_rocketbar);
+
   var rbTouchstops = filter(rbTouchEvents, isEventStop);
   // Taps on RocketBar are any swipe that covers very little ground.
   var rbTaps = filter(rbTouchstops, isTap);
 
-  var rbMovements = movement(rbDrags, 0.8, function (event) {
+  var rbMovements = movement(toRbDrags, 0.8, function (event) {
     var n = event.changedTouches[0].screenY;
     return n * 2 / screen.height;
   }, function (event) {
@@ -767,6 +778,9 @@ function app(window) {
     // Our fractional velocity.
     return Math.min(Math.max(dist / screen.height, 0.1), 0.1);
   });
+  var toModeTaskManagerEnters = filter(rbMovements, is0);
+  var toModeTaskManagerExits = filter(rbMovements, is1);
+  var toModeTaskManagerUpdates = filter(rbMovements, isBetween0And1);
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
 
@@ -779,7 +793,6 @@ function app(window) {
   var setEvents = merge([setIconTouchstops, setOverlayTouchstarts]);
   // Derive settings panel state.
   var setToggles = model(setEvents, function (setPanelEl, event) {
-    console.log(setPanelEl, event);
     haltEvent_(event);
     return setPanelEl.style.display === 'none';
   }, state.set_panel);
@@ -799,7 +812,7 @@ function app(window) {
     removeClass(els.rb_overlay, 'js-hide');
   });
 
-  function updateBlurRocketbar(els, event) {
+  write(state, rbBlurs, function updateBlurRocketbar(els, event) {
     event = haltEvent_(event);
     removeClass(els.sys_keyboard, 'js-activated');
     addClass(els.rb_cancel, 'js-hide');
@@ -808,22 +821,30 @@ function app(window) {
     // Collapse (or not) per current task manager status.
     if (els.body.dataset.mode !== 'tm_task_manager')
       removeClass(els.rb_rocketbar, 'js-expanded');
-  }
+  });
 
-  write(state, rbBlurs, updateBlurRocketbar);
+  write(state, toModeTaskManagerEnters, function (els, f) {
+    addClass(els.rb_rocketbar, 'js-transition');
+    addClass(els.sh_head, 'js-transition');
+  });
 
-  write(state, rbMovements, function (els, f) {
-    //addClass(els.rb_rocketbar, 'js-expanded');
-    //addClass(els.sh_head, 'sh-scaled');
-    if (f === 1) {
-      els.body.dataset.mode = 'tm_task_manager';
-    }
-    else {
-      var translate = -40 * f;
-      var height = 30 * f;
-      els.sh_head.style.transform = 'translateZ(' + translate + 'px)';
-      els.rb_rocketbar.style.height = (20 + height) + 'px';
-    }
+  write(state, toModeTaskManagerExits, function (els, f) {
+    removeClass(els.rb_rocketbar, 'js-transition');
+    addClass(els.rb_rocketbar, 'js-expanded');
+    els.rb_rocketbar.style.height = '';
+    // @TODO could probably do this via a modal class on the body element.
+    // One less element to manage.
+    removeClass(els.sh_head, 'js-transition');
+    addClass(els.sh_head, 'sh-scaled');
+    els.sh_head.style.transform = '';
+    els.body.dataset.mode = 'tm_task_manager';
+  });
+
+  write(state, toModeTaskManagerUpdates, function (els, f) {
+    var translate = -40 * f;
+    var height = 30 * f;
+    els.sh_head.style.transform = 'translateZ(' + translate + 'px)';
+    els.rb_rocketbar.style.height = (20 + height) + 'px';
   });
 
   write(state, headSheetTouchstarts, function (els, event) {
@@ -844,14 +865,16 @@ function app(window) {
 
   write(state, toHomeMoveEnters, function (els, f) {
     els.hs_homescreen.style.display = 'block';
+    addClass(els.tm_task_manager, 'js-transition');
   });
 
   write(state, toHomeMoveExits, function (els, f) {
     els.body.dataset.mode = 'hs_homescreen';
-    els.tm_task_manager.style.transform = 'none';
-    els.tm_task_manager.style.opacity = 1;
+    els.tm_task_manager.style.transform = '';
+    els.tm_task_manager.style.opacity = '';
     els.tm_task_manager.style.display = 'none';
     els.sys_bottom_edge.display = 'none';
+    removeClass(els.tm_task_manager, 'js-transition');
   });
 
   write(state, toHomeMoveUpdates, function (els, f) {
