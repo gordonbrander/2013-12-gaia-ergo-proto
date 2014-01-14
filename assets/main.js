@@ -34,6 +34,11 @@ define('dom', function (require, exports) {
   }
   exports.$ = $;
 
+  function $$(selector) {
+    return document.getElementById(selector);
+  }
+  exports.$$ = $$;
+
   // Internal higher-order function that expidites creating "setters" that
   // can operate on multiple items at once. Pass a `setOn` function that looks
   // like:
@@ -85,6 +90,19 @@ define('dom', function (require, exports) {
     return attr;
   });
   exports.setAttr = setAttr;
+
+  // Set/remove a single attribute on a single element.
+  function setSingleStyle(element, key, value) {
+    // Otherwise, set the attribute.
+    element.style[key] = value;
+    return element;
+  }
+
+  var setStyle = multisetter(function setStyleOn(styles, element) {
+    for (var key in styles) setSingleStyle(element, key, styles[key]);
+    return styles;
+  });
+  exports.setStyle = setStyle;
 
   var addClass = multisetter(function addClassTo(elementClass, element) {
     var prevElementClass = element.className;
@@ -159,8 +177,9 @@ define('view', function (require, exports) {
   var accumulatable = a.accumulatable;
   var end = a.end;
   var accumulate = a.accumulate;
+  var isNullish = a.isNullish;
 
-  // Write to a target as a side-effect of accumulating `spread`.
+  // Write to `target` every time `spread` updates.
   //
   // `enter(target)` must return a value representing the target to be written
   // to. This gives you a chance to create the target from a value, or modify
@@ -183,10 +202,21 @@ define('view', function (require, exports) {
     enter = enter || id;
     exit = exit || id;
 
-    return accumulatable(function accumulatewrite(next, initial) {
-      // Prep target.
-      target = enter(target);
+    target = enter(target);
+    accumulate(spread, function nextWrite(_, item) {
+      if (item === end) exit(target);
+      else update(target, item);
+    });
+  }
+  exports.write = write;
 
+  // Write to a target as a side-effect of accumulating `spread`.
+  function writes(target, spread, update, enter, exit) {
+    update = update || id;
+    enter = enter || id;
+    exit = exit || id;
+    return accumulatable(function accumulatewrite(next, initial) {
+      target = enter(target);
       accumulate(spread, function nextWrite(accumulated, item) {
         if (item === end) exit(target);
         else update(target, item);
@@ -196,8 +226,83 @@ define('view', function (require, exports) {
       }, initial);
     });
   }
+  exports.writes = writes;
 
-  exports.write = write;
+  function model(spread, derive, state) {
+    return hub(accumulatable(function accumulateModel(next, initial) {
+      accumulate(spread, function (accumulated, item) {
+        var derived = derive(state, item);
+        // If derived state is empty, skip accumulation.
+        return !isNullish(derived) ? next(accumulated, derived) : accumulated;
+      }, initial);
+    }));
+  }
+  exports.model = model;
+
+  // Transform a spread using on/off state.
+  function modal(spread, open, close, update, enter, exit) {
+    return accumulatable(function accumulateMovement(next, initial) {
+      var accumulated = initial;
+
+      accumulate(spread, function (isOpen, item) {
+        if (!isOpen) {
+          isOpen = open(item);
+          if (!isOpen) return false;
+          item = enter(item);
+        }
+        else {
+          isOpen = !close(item);
+          item = isOpen ? update(item) : exit(item);
+        }
+
+        accumulate(item, function (_, item) {
+          if (item !== end) accumulated = next(accumulated, item);
+        });
+
+        return isOpen;
+      }, false);
+    });
+  }
+  exports.modal = modal;
+
+  function enterMovement() {
+    return 0;
+  }
+
+  function movement(touches, threshold, calc, vel) {
+    function isClosed(event) {
+      // If event is stop, event is closed.
+      if (isEventStop(event)) return true;
+      // Has distance passed threshold? finish movement.
+      return calc(event) > threshold;
+    }
+
+    function exit(event) {
+      // Extrapolate the remaining distance into animation frames containing
+      // coords.
+      // The the fraction of the screen we've traversed from bottom.
+      var f = calc(event);
+      var v = vel(event);
+      // Find the number of `v` we'll need to add to `f` in order to go from
+      // `f` to 1.
+      var n = Math.ceil((1 - f) / v);
+
+      return reductions(frames(n), function (f) {
+        var t = f + v;
+        return (t > 1) ? 1 : t;
+      }, f);
+    }
+
+    return modal(
+      touches,
+      isEventMove,
+      isClosed,
+      calc,
+      enterMovement,
+      exit
+    );
+  }
+  exports.movement = movement;
 
   return exports;
 });
@@ -210,7 +315,7 @@ define('animation', function (require, exports) {
   var merge = a.merge;
   var end = a.end;
 
-  var write = require('view').write;
+  var writes = require('view').writes;
 
   function setAnimation_(element, name, duration, easing, iterations) {
     // Set up animation styles.
@@ -223,10 +328,10 @@ define('animation', function (require, exports) {
 
   function exitAnimation_(element) {
     // Tear down animation styles.
-    element.style.animationName = 'none';
-    element.style.animationDuration = '0ms';
-    element.style.animationIterationCount = 1;
-    element.style.animationEasing = 'linear';
+    element.style.animationName = '';
+    element.style.animationDuration = '';
+    element.style.animationIterationCount = '';
+    element.style.animationEasing = '';
     return element;
   }
 
@@ -259,14 +364,14 @@ define('animation', function (require, exports) {
       return setAnimation_(element, name, duration, easing, iterations);
     }
 
-    return write(element, anim, null, enterAnimation_, exitAnimation_);
+    return writes(element, anim, null, enterAnimation_, exitAnimation_);
   }
   exports.animation = animation;
 
   function build(name, enter, exit) {
     function animateBuild(element, duration, easing) {
       var anim = animation(element, name, duration, easing);
-      return write(element, anim, null, enter, exit);
+      return writes(element, anim, null, enter, exit);
     }
     return animateBuild;
   }
@@ -383,6 +488,11 @@ define('helpers', function (require, exports) {
   }
   exports.dropRepeats = dropRepeats;
 
+  function sync(spread, trigger) {
+    return dropRepeats(sample(spread, trigger));
+  }
+  exports.sync = sync;
+
   return exports;
 });
 
@@ -400,9 +510,9 @@ var reductions = a.reductions;
 var accumulatable = a.accumulatable;
 var accumulate = a.accumulate;
 var end = a.end;
-var write = a.write;
 var id = a.id;
 var isNullish = a.isNullish;
+var frames = a.frames;
 
 var helpers = require('helpers');
 var print = helpers.print;
@@ -411,6 +521,7 @@ var asserts = helpers.asserts;
 
 var dom = require('dom');
 var $ = dom.$;
+var $$ = dom.$$;
 var hasClass = dom.hasClass;
 var addClass = dom.addClass;
 var removeClass = dom.removeClass;
@@ -420,7 +531,10 @@ var withId = dom.withId;
 var withClass = dom.withClass;
 var withTargetClass = dom.withTargetClass;
 
-var write = require('view').write;
+var v = require('view');
+var write = v.write;
+var movement = v.movement;
+var model = v.model;
 
 var anim = require('animation');
 var animation = anim.animation;
@@ -428,6 +542,20 @@ var scaleOut = anim.scaleOut;
 var fadeIn = anim.fadeIn;
 var scaleIn = anim.scaleIn;
 var fadeOut = anim.fadeOut;
+
+function withValue(v) {
+  function isValue(thing) {
+    return thing === v;
+  }
+  return isValue;
+}
+
+function withRange(a, b) {
+  function between(thing) {
+    return thing > a && thing < b;
+  }
+  return between;
+}
 
 // Check if an event is an ending event (cancel or end).
 function isEventStop(event) {
@@ -571,7 +699,35 @@ function haltEvent_(event) {
   return event;
 }
 
+function isTruthy(thing) {
+  return !!thing;
+}
+
+function fractionOfScreenFromBottom(n) {
+  return (screen.height - n) / screen.height;
+}
+
+var is0 = withValue(0);
+var is1 = withValue(1);
+var isBetween0And1 = withRange(0, 1);
+
 function app(window) {
+  // Contains references to elements we'll be writing to. Also a repository
+  // for shared state.
+  var state = {
+    sys_keyboard: $$('sys-fake-keyboard'),
+    rb_overlay: $$('rb-overlay'),
+    rb_rocketbar: $$('rb-rocketbar'),
+    rb_cancel: $$('rb-cancel'),
+    tm_task_manager: $$('tm-task-manager'),
+    sh_head: $$('sh-sheet-000000'),
+    set_panel: $$('set-settings'),
+    set_overlay: $$('set-overlay'),
+    body: $$('sys-screen'),
+    hs_homescreen: $$('hs-homescreen'),
+    sys_bottom_edge: $$('sys-gesture-panel-bottom')
+  };
+
   // Listen for touch events.
   var touchstarts = on(window, 'touchstart');
   var touchmoves = on(window, 'touchmove');
@@ -579,39 +735,52 @@ function app(window) {
   var touchcancels = on(window, 'touchcancel');
   var touchEvents = merge([touchstarts, touchmoves, touchcancels, touchends]);
   var augTouchEvents = augmentTouchEvents(touchEvents);
-  var augTouchstops = filter(augTouchEvents, isEventStop);
-  var augTouchmoves = filter(augTouchEvents, isEventMove);
+  var augTouchstops = filter(augmentTouchEvents, isEventStop);
 
-  var bottomEdgeTouchmoves = filter(touchmoves, withTargetId('sys-gesture-panel-bottom'));
-  var bottomEdgeSingleTouchmoves = filter(bottomEdgeTouchmoves, withFingers(1));
+  var bottomEdgeTouchEvents = filter(augTouchEvents, withTargetId('sys-gesture-panel-bottom'));
+  var bottomEdgeSingleTouchEvents = filter(bottomEdgeTouchEvents, withFingers(1));
+  var bottomEdgeSingleDrags = reject(bottomEdgeSingleTouchEvents, isEventStart);
 
-  var firstBottomEdgeSingleTouchmoves = asserts(bottomEdgeSingleTouchmoves, function(prev, curr) {
-    // We're only interested in single touch cases for this spread.
-    if (curr.touches.length > 1) return false;
-
-    // Handle first case, where prev is null.
-    if (!prev) return true;
-
-    var currTouch = curr.changedTouches[0];
-    var prevTouch = getTouchById(prev.touches, currTouch.identifier);
-
-    // If this is the first time touch appeared, return true.
-    if (!prevTouch) return true;
-
-    return (
-      // If identifiers don't match, these are definitely different.
-      // However, Firefox (and maybe other browsers) recycle identifiers,
-      prevTouch.identifier !== currTouch.identifier ||
-      // so in addition, we check the original timestamp.
-      prevTouch.origTimeStamp !== currTouch.origTimeStamp
-    );
+  var bottomEdgeMovements = movement(bottomEdgeSingleDrags, 0.8, function (event) {
+    var n = event.changedTouches[0].screenY;
+    return (screen.height - n) / screen.height;
+  }, function (event) {
+    var touch = event.changedTouches[0];
+    var dist = Math.abs(touch.screenY - touch.prevScreenY);
+    // Our fractional velocity.
+    return Math.min(Math.max(dist / screen.height, 0.02), 0.05);
   });
 
-  var rbTouchstops = filter(augTouchstops, withTargetId('rb-rocketbar'));
+  var toHomeMoveEnters = filter(bottomEdgeMovements, is0);
+  var toHomeMoveUpdates = filter(bottomEdgeMovements, isBetween0And1);
+  var toHomeMoveExits = filter(bottomEdgeMovements, is1);
 
+  var rbTouchEvents = filter(augTouchEvents, withTargetId('rb-rocketbar'));
+  var rbDrags = reject(rbTouchEvents, isEventStart);
+
+  var toRbDrags = model(rbDrags, function (rbEl, event) {
+    // If rocketbar is expanded, skip this drag. Otherwise, halt event, we're
+    // going to handle it as a drag.
+    return (hasClass(rbEl, 'js-expanded')) ?
+      null : haltEvent_(event);
+  }, state.rb_rocketbar);
+
+  var rbTouchstops = filter(rbTouchEvents, isEventStop);
   // Taps on RocketBar are any swipe that covers very little ground.
   var rbTaps = filter(rbTouchstops, isTap);
-  var rbSwipes = reject(rbTouchstops, isTap);
+
+  var rbMovements = movement(toRbDrags, 0.8, function (event) {
+    var n = event.changedTouches[0].screenY;
+    return n * 2 / screen.height;
+  }, function (event) {
+    var touch = event.changedTouches[0];
+    var dist = Math.abs(touch.screenY - touch.prevScreenY);
+    // Our fractional velocity.
+    return Math.min(Math.max(dist / screen.height, 0.1), 0.1);
+  });
+  var toModeTaskManagerEnters = filter(rbMovements, is0);
+  var toModeTaskManagerExits = filter(rbMovements, is1);
+  var toModeTaskManagerUpdates = filter(rbMovements, isBetween0And1);
 
   var rbCancelTouchstarts = filter(touchstarts, withTargetId('rb-cancel'));
 
@@ -619,9 +788,16 @@ function app(window) {
 
   var rbBlurs = merge([rbCancelTouchstarts, rbOverlayTouchstarts]);
 
-  var setIconTouchstarts = filter(touchstarts, withTargetId('rb-icons'));
+  var setIconTouchstops = filter(touchstarts, withTargetId('rb-icons'));
   var setOverlayTouchstarts = filter(touchstarts, withTargetId('set-overlay'));
-  var setEvents = merge([setIconTouchstarts, setOverlayTouchstarts]);
+  var setEvents = merge([setIconTouchstops, setOverlayTouchstarts]);
+  // Derive settings panel state.
+  var setToggles = model(setEvents, function (setPanelEl, event) {
+    haltEvent_(event);
+    return setPanelEl.style.display === 'none';
+  }, state.set_panel);
+  var setClose = reject(setToggles, isTruthy);
+  var setOpen = filter(setToggles, isTruthy);
 
   var hsKitTouchstarts = filter(touchstarts, withTargetId('hs-kitsilano-hotzone'));
 
@@ -629,140 +805,97 @@ function app(window) {
   // manager.
   var headSheetTouchstarts = filter(touchstarts, withTargetClass('sh-cover'));
 
-  var keyboardEl = document.getElementById('sys-fake-keyboard');
-  var rbOverlayEl = document.getElementById('rb-overlay');
-  var rbRocketbarEl = document.getElementById('rb-rocketbar');
-  var rbCancelEl = document.getElementById('rb-cancel');
-  var tmEl = document.getElementById('tm-task-manager');
-  var activeSheetEl = document.getElementById('sh-sheet-000000');
-  var setPanelEl = document.getElementById('set-settings');
-  var setOverlayEl = document.getElementById('set-overlay');
-  var bodyEl = document.getElementById('sys-screen');
-  var hsEl = document.getElementById('hs-homescreen');
-  var bottomEdgeEl = document.getElementById('sys-gesture-panel-bottom');
-
-  var rbFocusWrites = write({
-    keyboard: keyboardEl,
-    overlay: rbOverlayEl,
-    cancel: rbCancelEl,
-    rocketbar: rbRocketbarEl
-  }, rbTaps, function (els, event) {
-    addClass(els.rocketbar, 'js-expanded');
-    addClass(els.keyboard, 'js-activated');
-    removeClass(els.cancel, 'js-hide');
-    removeClass(els.overlay, 'js-hide');
+  write(state, rbTaps, function (els, event) {
+    addClass(els.rb_rocketbar, 'js-expanded');
+    addClass(els.sys_keyboard, 'js-activated');
+    removeClass(els.rb_cancel, 'js-hide');
+    removeClass(els.rb_overlay, 'js-hide');
   });
 
-  function updateBlurRocketbar(els, event) {
+  write(state, rbBlurs, function updateBlurRocketbar(els, event) {
     event = haltEvent_(event);
-    removeClass(els.keyboard, 'js-activated');
-    addClass(els.cancel, 'js-hide');
-    addClass(els.overlay, 'js-hide');
+    removeClass(els.sys_keyboard, 'js-activated');
+    addClass(els.rb_cancel, 'js-hide');
+    addClass(els.rb_overlay, 'js-hide');
 
     // Collapse (or not) per current task manager status.
-    if (!hasClass(els.body, 'tm-mode'))
-      removeClass(els.rocketbar, 'js-expanded');
-  }
-
-  var rbBlurWrites = write({
-    keyboard: keyboardEl,
-    overlay: rbOverlayEl,
-    cancel: rbCancelEl,
-    rocketbar: rbRocketbarEl,
-    body: bodyEl
-  }, rbBlurs, updateBlurRocketbar);
-
-  var toTmWrites = write({
-    body: bodyEl,
-    head: activeSheetEl,
-    rocketbar: rbRocketbarEl
-  }, rbSwipes, function (els, event) {
-    addClass(els.body, 'tm-mode');
-    addClass(els.rocketbar, 'js-expanded');
-    addClass(els.head, 'sh-scaled');
+    if (els.body.dataset.mode !== 'tm_task_manager')
+      removeClass(els.rb_rocketbar, 'js-expanded');
   });
 
-  var fromTmToSheetWrites = write({
-    body: bodyEl,
-    head: activeSheetEl,
-    rocketbar: rbRocketbarEl
-  }, headSheetTouchstarts, function (els, event) {
-    removeClass(els.body, 'tm-mode');
-    removeClass(els.head, 'sh-scaled');
-    removeClass(els.rocketbar, 'js-expanded');
+  write(state, toModeTaskManagerEnters, function (els, f) {
+    addClass(els.rb_rocketbar, 'js-transition');
+    addClass(els.sh_head, 'js-transition');
   });
 
-  function updateSetPanelClose(els, event) {
-    addClass(els.panel, 'js-hide');
-    addClass(els.overlay, 'js-hide');
-  }
-
-  function updateSetPanelOpen(els, event) {
-    removeClass(els.panel, 'js-hide');
-    removeClass(els.overlay, 'js-hide');
-  }
-
-  var setPanelWrites = write({
-    panel: setPanelEl,
-    overlay: setOverlayEl
-  }, setEvents, function (els, event) {
-    event = haltEvent_(event);
-
-    if (event.target.id === 'set-overlay') updateSetPanelClose(els, event);
-    else if (!hasClass(els.panel, 'js-hide')) updateSetPanelClose(els, event);
-    else updateSetPanelOpen(els, event);
+  write(state, toModeTaskManagerExits, function (els, f) {
+    removeClass(els.rb_rocketbar, 'js-transition');
+    addClass(els.rb_rocketbar, 'js-expanded');
+    els.rb_rocketbar.style.height = '';
+    // @TODO could probably do this via a modal class on the body element.
+    // One less element to manage.
+    removeClass(els.sh_head, 'js-transition');
+    addClass(els.sh_head, 'sh-scaled');
+    els.sh_head.style.transform = '';
+    els.body.dataset.mode = 'tm_task_manager';
   });
 
-  var toHomeWrites = write({
-    home: hsEl,
-    manager: tmEl,
-    keyboard: keyboardEl,
-    overlay: rbOverlayEl,
-    cancel: rbCancelEl,
-    rocketbar: rbRocketbarEl,
-    body: bodyEl,
-    bottomEdge: bottomEdgeEl
-  }, firstBottomEdgeSingleTouchmoves, function (els, event) {
+  write(state, toModeTaskManagerUpdates, function (els, f) {
+    var translate = -40 * f;
+    var height = 30 * f;
+    els.sh_head.style.transform = 'translateZ(' + translate + 'px)';
+    els.rb_rocketbar.style.height = (20 + height) + 'px';
+  });
+
+  write(state, headSheetTouchstarts, function (els, event) {
+    els.body.dataset.mode = 'sh_sheet';
+    removeClass(els.sh_head, 'sh-scaled');
+    removeClass(els.rb_rocketbar, 'js-expanded');
+  });
+
+  write(state, setClose, function updateSetPanelClose(els, event) {
+    els.set_panel.style.display = 'none';
+    els.set_overlay.style.display = 'none';
+  });
+
+  write(state, setOpen, function updateSetPanelOpen(els, event) {
+    els.set_panel.style.display = 'block';
+    els.set_overlay.style.display = 'block';
+  });
+
+  write(state, toHomeMoveEnters, function (els, f) {
+    els.hs_homescreen.style.display = 'block';
+    addClass(els.tm_task_manager, 'js-transition');
+  });
+
+  write(state, toHomeMoveExits, function (els, f) {
+    els.body.dataset.mode = 'hs_homescreen';
+    els.tm_task_manager.style.transform = '';
+    els.tm_task_manager.style.opacity = '';
+    els.tm_task_manager.style.display = 'none';
+    els.sys_bottom_edge.display = 'none';
+    removeClass(els.tm_task_manager, 'js-transition');
+  });
+
+  write(state, toHomeMoveUpdates, function (els, f) {
+    var translate = -1500 * (f * f);
+    var opacity = 1 - f;
+    els.tm_task_manager.style.transform = 'translateZ(' + translate + 'px)';
+    els.tm_task_manager.style.opacity = opacity;
+  });
+
+  write(state, hsKitTouchstarts, function (els, event) {
     haltEvent_(event);
 
-    // Remove bottom gesture catcher from play.
-    addClass(els.bottomEdge, 'js-hide');
+    els.body.dataset.mode = 'sh_sheet';
 
-    go(concat([
-      scaleOut(els.manager, 800, 'linear'),
-      fadeIn(els.home, 600, 'ease-out')
-    ]));
+    els.sys_bottom_edge.display = 'block';
 
-    updateBlurRocketbar(els, event);
-  });
-
-  var fromHomeToSheetWrites = write({
-    home: hsEl,
-    manager: tmEl,
-    bottomEdge: bottomEdgeEl
-  }, hsKitTouchstarts, function (els, event) {
-    haltEvent_(event);
-
-    // Remove bottom gesture catcher from play.
-    removeClass(els.bottomEdge, 'js-hide');
-
-    go(concat([
-      fadeOut(els.home, 600, 'linear'),
-      scaleIn(els.manager, 800, 'ease-out')
+    print(concat([
+      fadeOut(els.hs_homescreen, 600, 'linear'),
+      scaleIn(els.tm_task_manager, 800, 'ease-out')
     ]));
   });
-
-  // Merge all accumulatable spreads so they will begin accumulation at same
-  // moment.
-  return merge([
-    rbFocusWrites,
-    rbBlurWrites,
-    setPanelWrites,
-    toTmWrites,
-    fromTmToSheetWrites,
-    toHomeWrites,
-    fromHomeToSheetWrites
-  ]);
 }
 
-print(app(window));
+app(window);

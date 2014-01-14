@@ -66,6 +66,10 @@ body {
   height: 100%;
 }
 
+body {
+  perspective: 100px;
+}
+
 /* Remove the gap between images, videos, audio and canvas and the bottom of
 their containers: h5bp.com/i/440 */
 audio,
@@ -88,6 +92,11 @@ video {
 
 .js-hide {
   display: none;
+}
+
+/* JS class for disabling CSS transitions while animating an element via CSS. */
+.js-transition {
+  transition: none !important;
 }
 
 /* System .sys-
@@ -149,9 +158,9 @@ video {
   left: 0;
   /* Contains absolute elements */
   position: absolute;
+  transition: height 200ms linear;
   right: 0;
   top: 0;
-  transition: height 200ms ease-out;
   z-index: 501;
 }
 
@@ -240,7 +249,9 @@ video {
 .tm-task-manager {
   background: #484848;
   height: 460px;
-  /* Perspective for shrinking sheets. */
+  /* We have to give task manager perspective because as an absolute element
+  with z-index, it has a new stacking context 
+  See: https://developer.mozilla.org/en-US/docs/Web/Guide/CSS/Understanding_z_index/The_stacking_context */
   perspective: 100px;
   position: absolute;
   top: 20px;
@@ -255,7 +266,7 @@ video {
   height: 460px;
   position: absolute;
   top: 0;
-  transition: 200ms transform linear;
+  transition: transform 200ms linear;
   width: 320px;
   z-index: 300;
 }

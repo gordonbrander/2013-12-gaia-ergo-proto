@@ -321,11 +321,15 @@ function accumulators(_, exports) {
     return accumulatable(function accumulateReductions(next, initial) {
       // Define a `next` function for accumulation.
       function nextReduction(accumulated, item) {
-        return item === end ?
-          next(accumulated, end) :
-          // If item is not `end`, update state of reduction and accumulate
-          // with it.
-          next(accumulated, reduction = xf(reduction, item));
+        // If item is end, accumulate with `end`. `xf` should never see end.
+        if (item === end) return next(accumulated, end);
+
+        // Create reduction.
+        reduction = xf(reduction, item);
+
+        // If reduction is `end`, return it so source can end. Otherwise
+        // accumulate with reduction.
+        return (reduction === end) ? end : next(accumulated, reduction);
       }
 
       accumulate(spread, nextReduction, initial);
@@ -625,16 +629,16 @@ function accumulators(_, exports) {
   // Get a stream of animation frames over time.
   // Returns an accumulatable for a stream of animation frames over time.
   // Each frame is represented by a framecount.
-  function frames(ms) {
+  function frames(n) {
     return hub(accumulatable(function accumulateFrames(next, initial) {
       var accumulated = initial;
-      var start = Date.now();
+      var i = n || Infinity;
 
       function onFrame(now) {
         accumulated = next(accumulated, now);
-
-        // If we have reached the ms count for frames, end the spread.
-        if (ms && ((now - start) >= ms)) return next(accumulated, end);
+        i = i - 1;
+        // If we have reached the count for frames, end the spread.
+        if (i === 0) return next(accumulated, end);
         // If consumer ends spread, stop requesting frames.
         if (accumulated !== end) return requestAnimationFrame(onFrame);
       }
