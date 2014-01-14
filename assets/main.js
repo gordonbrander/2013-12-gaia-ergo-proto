@@ -557,6 +557,12 @@ function withRange(a, b) {
   return between;
 }
 
+// Normalize a number `x` such that if less than `a`, will return `a`, and
+// if greater than `b`, `b`.
+function bound(x, a, b) {
+  return Math.max(Math.min(x, b), a);
+}
+
 // Check if an event is an ending event (cancel or end).
 function isEventStop(event) {
   return event && (event.type === 'touchend' || event.type === 'touchcancel');
@@ -744,7 +750,7 @@ function app(window) {
     var touch = event.changedTouches[0];
     var dist = Math.abs(touch.screenY - touch.prevScreenY);
     // Our fractional velocity.
-    return Math.min(Math.max(dist / screen.height, 0.02), 0.05);
+    return bound(dist / screen.height, 0.02, 0.05);
   });
 
   var toHomeMoveEnters = filter(bottomEdgeMovements, is0);
@@ -772,7 +778,7 @@ function app(window) {
     var touch = event.changedTouches[0];
     var dist = Math.abs(touch.screenY - touch.prevScreenY);
     // Our fractional velocity.
-    return Math.min(Math.max(dist / screen.height, 0.1), 0.1);
+    return bound(dist / screen.height, 0.02, 0.05);
   });
   var toModeTaskManagerEnters = filter(rbMovements, is0);
   var toModeTaskManagerExits = filter(rbMovements, is1);
@@ -825,7 +831,6 @@ function app(window) {
   });
 
   write(state, toModeTaskManagerExits, function (els, f) {
-    console.log('toModeTaskManagerExits', els, f);
     removeClass(els.rb_rocketbar, 'js-transition');
     addClass(els.rb_rocketbar, 'js-expanded');
     els.rb_rocketbar.style.height = '';
