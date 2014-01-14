@@ -703,10 +703,6 @@ function isTruthy(thing) {
   return !!thing;
 }
 
-function fractionOfScreenFromBottom(n) {
-  return (screen.height - n) / screen.height;
-}
-
 var is0 = withValue(0);
 var is1 = withValue(1);
 var isBetween0And1 = withRange(0, 1);
@@ -829,6 +825,7 @@ function app(window) {
   });
 
   write(state, toModeTaskManagerExits, function (els, f) {
+    console.log('toModeTaskManagerExits', els, f);
     removeClass(els.rb_rocketbar, 'js-transition');
     addClass(els.rb_rocketbar, 'js-expanded');
     els.rb_rocketbar.style.height = '';
