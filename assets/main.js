@@ -287,6 +287,7 @@ define('view', function (require, exports) {
       // `f` to 1.
       var n = Math.ceil((1 - f) / v);
 
+      // @TODO should reductions be passed through hub()?
       return reductions(frames(n), function (f) {
         var t = f + v;
         return (t > 1) ? 1 : t;
@@ -893,7 +894,7 @@ function app(window) {
 
     els.sys_bottom_edge.display = 'block';
 
-    print(concat([
+    go(concat([
       fadeOut(els.hs_homescreen, 600, 'linear'),
       scaleIn(els.tm_task_manager, 800, 'ease-out')
     ]));
