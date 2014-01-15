@@ -243,7 +243,7 @@ define('view', function (require, exports) {
   function modal(spread, open, close, update, enter, exit) {
     // Make sure to hub returned accumulatable! This is state-based, so we need
     // to make sure multiple accumulation doesn't mess state up.
-    return hub(accumulatable(function accumulateMovement(next, initial) {
+    return hub(accumulatable(function accumulateModal(next, initial) {
       var accumulated = initial;
 
       accumulate(spread, function (isOpen, item) {
@@ -267,6 +267,13 @@ define('view', function (require, exports) {
   }
   exports.modal = modal;
 
+  // Normalize a number `x` such that if less than `a`, will return `a`, and
+  // if greater than `b`, `b`.
+  function bound(x, a, b) {
+    return Math.max(Math.min(x, b), a);
+  }
+  exports.bound = bound;
+
   function enterMovement() {
     return 0;
   }
@@ -282,15 +289,20 @@ define('view', function (require, exports) {
     function exit(event) {
       // Extrapolate the remaining distance into animation frames containing
       // coords.
+
       // The the fraction of the screen we've traversed from bottom.
-      var f = calc(event);
-      var v = vel(event);
+      // Bound this number between 0 and 1. It's possible to, for example get
+      // `touch.screenY` values larger than `screen.height`, resulting in crazy
+      // math-based errors!
+      var f = bound(calc(event), 0, 0.5);
+      // Let's leave nothing to chance. Cap velocity at values that will not be
+      // able to break movement.
+      var v = bound(vel(event), 0.01, 1);
       // Find the number of `v` we'll need to add to `f` in order to go from
       // `f` to 1.
-      // Divide by zero error?
       var n = Math.ceil((1 - f) / v);
-
-      // @TODO should reductions be passed through hub()?
+      // @TODO should reductions be passed through hub()? Modal already is,
+      // so in theory this should never be reduced > one time.
       return reductions(frames(n), function (f) {
         var t = f + v;
         return (t > 1) ? 1 : t;
@@ -299,7 +311,7 @@ define('view', function (require, exports) {
 
     return modal(
       touches,
-      isEventMove,
+      isEventStart,
       isClosed,
       calc,
       enterMovement,
@@ -538,6 +550,7 @@ var withTargetClass = dom.withTargetClass;
 var v = require('view');
 var write = v.write;
 var movement = v.movement;
+var bound = v.bound;
 var model = v.model;
 
 var anim = require('animation');
@@ -559,12 +572,6 @@ function withRange(a, b) {
     return thing > a && thing < b;
   }
   return between;
-}
-
-// Normalize a number `x` such that if less than `a`, will return `a`, and
-// if greater than `b`, `b`.
-function bound(x, a, b) {
-  return Math.max(Math.min(x, b), a);
 }
 
 // Check if an event is an ending event (cancel or end).
@@ -745,9 +752,8 @@ function app(window) {
 
   var bottomEdgeTouchEvents = filter(augTouchEvents, withTargetId('sys-gesture-panel-bottom'));
   var bottomEdgeSingleTouchEvents = filter(bottomEdgeTouchEvents, withFingers(1));
-  var bottomEdgeSingleDrags = reject(bottomEdgeSingleTouchEvents, isEventStart);
 
-  var bottomEdgeMovements = movement(bottomEdgeSingleDrags, 0.8, function (event) {
+  var bottomEdgeMovements = movement(bottomEdgeSingleTouchEvents, 0.8, function (event) {
     var n = event.changedTouches[0].screenY;
     return (screen.height - n) / screen.height;
   }, function (event) {
@@ -762,9 +768,8 @@ function app(window) {
   var toHomeMoveExits = filter(bottomEdgeMovements, is1);
 
   var rbTouchEvents = filter(augTouchEvents, withTargetId('rb-rocketbar'));
-  var rbDrags = reject(rbTouchEvents, isEventStart);
 
-  var toRbDrags = model(rbDrags, function (rbEl, event) {
+  var toRbDrags = model(rbTouchEvents, function (rbEl, event) {
     // If rocketbar is expanded, skip this drag. Otherwise, halt event, we're
     // going to handle it as a drag.
     return (hasClass(rbEl, 'js-expanded')) ?
