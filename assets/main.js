@@ -241,7 +241,9 @@ define('view', function (require, exports) {
 
   // Transform a spread using on/off state.
   function modal(spread, open, close, update, enter, exit) {
-    return accumulatable(function accumulateMovement(next, initial) {
+    // Make sure to hub returned accumulatable! This is state-based, so we need
+    // to make sure multiple accumulation doesn't mess state up.
+    return hub(accumulatable(function accumulateMovement(next, initial) {
       var accumulated = initial;
 
       accumulate(spread, function (isOpen, item) {
@@ -261,7 +263,7 @@ define('view', function (require, exports) {
 
         return isOpen;
       }, false);
-    });
+    }));
   }
   exports.modal = modal;
 
@@ -285,6 +287,7 @@ define('view', function (require, exports) {
       var v = vel(event);
       // Find the number of `v` we'll need to add to `f` in order to go from
       // `f` to 1.
+      // Divide by zero error?
       var n = Math.ceil((1 - f) / v);
 
       // @TODO should reductions be passed through hub()?
@@ -774,12 +777,12 @@ function app(window) {
 
   var rbMovements = movement(toRbDrags, 0.8, function (event) {
     var n = event.changedTouches[0].screenY;
-    return n * 2 / screen.height;
+    return n / screen.height;
   }, function (event) {
     var touch = event.changedTouches[0];
     var dist = Math.abs(touch.screenY - touch.prevScreenY);
     // Our fractional velocity.
-    return bound(dist / screen.height, 0.02, 0.05);
+    return bound(dist / screen.height, 0.03, 0.05);
   });
   var toModeTaskManagerEnters = filter(rbMovements, is0);
   var toModeTaskManagerExits = filter(rbMovements, is1);
